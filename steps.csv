@@ -1,0 +1,22 @@
+step_id,procedure_id,step_order,step_name
+S_LAP_01,LAPAPP,1,Establish pneumoperitoneum
+S_LAP_02,LAPAPP,2,Place ports
+S_LAP_03,LAPAPP,3,Control mesoappendix
+S_LAP_04,LAPAPP,4,Divide appendix base
+S_HYST_01,HYST,1,Exposure of the uterus/tubes/ovaries
+S_HYST_02,HYST,2,Identification of the ureters (transperitoneal vs retroperitoneal)
+S_HYST_03,HYST,3,Bilateral Salpingectomy
+S_HYST_04,HYST,4,Uterine ovarian ligament cauterization/transection
+S_HYST_05,HYST,5,Skeletonization IP ligaments
+S_HYST_06,HYST,6,Ligation IP ligaments
+S_HYST_07,HYST,7,Ligation/transection round ligaments
+S_HYST_08,HYST,8,Dissection posterior and anterior leaflets of broad ligament
+S_HYST_09,HYST,9,Bladder flap creation
+S_HYST_10,HYST,10,Skeletonization uterine vessels
+S_HYST_11,HYST,11,Uterine vessel ligation and transection
+S_HYST_12,HYST,12,Colpotomy
+S_HYST_13,HYST,13,Removal of uterus and fallopian tubes
+S_HYST_14,HYST,14,Cuff closure
+S_NEPH_01,NEPH,1,Mobilize kidney
+S_NEPH_02,NEPH,2,Control renal vessels
+S_NEPH_03,NEPH,3,Remove specimen
