@@ -7,7 +7,6 @@ import io
 from openpyxl.styles import PatternFill
 
 
-
 # --- Session State Init ---
 if "page" not in st.session_state: 
     st.session_state["page"] = "login"
