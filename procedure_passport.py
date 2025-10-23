@@ -206,6 +206,14 @@ def get_gs_client():
         ],
     )
     return gspread.authorize(creds)
+def test_google_sheets_connection():
+    """Simple test to confirm connection to Google Sheets."""
+    try:
+        gc = get_gs_client()
+        sh = gc.open_by_key(st.secrets["GOOGLE_SHEET_KEY"])
+        st.success(f"✅ Connected to Google Sheet: {sh.title}")
+    except Exception as e:
+        st.error(f"❌ Could not connect to Google Sheets: {e}")
 # -----------------------------
 # NAV HELPERS
 # -----------------------------
