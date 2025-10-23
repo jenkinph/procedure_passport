@@ -287,6 +287,10 @@ if st.session_state["page"] == "login":
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
 
+# --- Google Sheets test button ---
+if st.button("🔌 Test Google Sheets Connection"):
+    test_google_sheets_connection()
+
     st.subheader("Residents")
     residents = pd.read_csv(RESIDENTS_CSV)
     st.dataframe(residents)
