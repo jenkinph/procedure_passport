@@ -1,4 +1,2 @@
-attending_id,attending_name,specialty_id
-A_GS_SMITH,Dr. Alex Smith,GS
-A_OB_JONES,Dr. Robin Jones,OB
-A_URO_LEE,Dr. Casey Lee,URO
+attending_id,attending_name,attending_email,specialty_id
+A_GS_THANAWALA,Dr. Ruchi Thanawala, thanawal@ohsu.edu,GS
