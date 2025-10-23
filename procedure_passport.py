@@ -189,7 +189,34 @@ def style_df(df, col):
     """Apply color styling to a dataframe column based on rating."""
     return df.style.applymap(lambda v: RATING_COLOR.get(v, ""), subset=[col])
     
+# -----------------------------
+# GOOGLE SHEETS CONNECTION HELPER
+# -----------------------------
+import json
+import gspread
+from gspread_dataframe import get_as_dataframe, set_with_dataframe
+from google.oauth2.service_account import Credentials
 
+def get_gs_client():
+    """Return an authorized gspread client using Streamlit secrets."""
+    svc_info = json.loads(st.secrets["GOOGLE_SVC_JSON"])
+    creds = Credentials.from_service_account_info(
+        svc_info,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ],
+    )
+    return gspread.authorize(creds)
+
+def test_google_sheets_connection():
+    """Simple test to confirm connection to Google Sheets."""
+    try:
+        gc = get_gs_client()
+        sh = gc.open_by_key(st.secrets["GOOGLE_SHEET_KEY"])
+        st.success(f"✅ Connected to Google Sheet: {sh.title}")
+    except Exception as e:
+        st.error(f"❌ Could not connect to Google Sheets: {e}")
 # -----------------------------
 # NAV HELPERS
 # -----------------------------
