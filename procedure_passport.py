@@ -126,11 +126,27 @@ def bootstrap_reference_data():
         ]).to_csv(SCORES_CSV, index=False)
 
 def load_refs():
-    """Load reference data from Google Sheets into DataFrames."""
-    spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
-    proc_df = read_sheet_df("procedures", expected_cols=["procedure_id", "procedure_name", "specialty_id"])
-    steps_df = read_sheet_df("steps", expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
-    atnd_df = read_sheet_df("attendings", expected_cols=["attending_id", "attending_name", "specialty_id", "email"])
+    """Load reference data from Google Sheets into DataFrames (safe mode)."""
+    try:
+        spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+    except Exception:
+        spec_df = pd.DataFrame(columns=["specialty_id", "specialty_name"])
+
+    try:
+        proc_df = read_sheet_df("procedures", expected_cols=["procedure_id", "procedure_name", "specialty_id"])
+    except Exception:
+        proc_df = pd.DataFrame(columns=["procedure_id", "procedure_name", "specialty_id"])
+
+    try:
+        steps_df = read_sheet_df("steps", expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
+    except Exception:
+        steps_df = pd.DataFrame(columns=["step_id", "procedure_id", "step_order", "step_name"])
+
+    try:
+        atnd_df = read_sheet_df("attendings", expected_cols=["attending_id", "attending_name", "specialty_id", "email"])
+    except Exception:
+        atnd_df = pd.DataFrame(columns=["attending_id", "attending_name", "specialty_id", "email"])
+
     return spec_df, proc_df, steps_df, atnd_df
 
 def ensure_resident(email, name=""):
@@ -402,6 +418,8 @@ if st.session_state["page"] == "login":
 # -------------------
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
+    if st.button("🔄 Reload Google Sheet Data"):
+        st.experimental_rerun()
     # -------------------
     # Specialties Section
     # -------------------
