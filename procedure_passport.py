@@ -127,11 +127,10 @@ def bootstrap_reference_data():
 
 def load_refs():
     """Load reference data from Google Sheets into DataFrames."""
-    spec_df = read_sheet_df(SHEET_PROCEDURES.replace("procedures", "specialties"),
-                            expected_cols=["specialty_id", "specialty_name"])
-    proc_df = read_sheet_df(SHEET_PROCEDURES, expected_cols=["procedure_id", "procedure_name", "specialty_id"])
-    steps_df = read_sheet_df(SHEET_STEPS, expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
-    atnd_df = read_sheet_df(SHEET_ATTENDINGS, expected_cols=["attending_id", "attending_name", "specialty_id", "email"])
+    spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+    proc_df = read_sheet_df("procedures", expected_cols=["procedure_id", "procedure_name", "specialty_id"])
+    steps_df = read_sheet_df("steps", expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
+    atnd_df = read_sheet_df("attendings", expected_cols=["attending_id", "attending_name", "specialty_id", "email"])
     return spec_df, proc_df, steps_df, atnd_df
 
 def ensure_resident(email, name=""):
