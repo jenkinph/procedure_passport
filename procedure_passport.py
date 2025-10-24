@@ -754,58 +754,83 @@ elif st.session_state["page"] == "dashboard":
         go_next("cumulative")
 
 # -------------------
-# Page: Cumulative Dashboard
+# PAGE: Cumulative Dashboard (Google Sheets only)
 # -------------------
 elif st.session_state["page"] == "cumulative":
     st.title("📊 Cumulative Dashboard")
 
     resident = st.session_state.get("resident")
+
+    # --- If not logged in ---
     if not resident:
         st.error("⚠️ No resident logged in. Please log in first.")
         if st.button("⬅️ Back to Home"):
             st.session_state["page"] = "home"
-            st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-            time.sleep(1)              # ⏳ lets Google confirm the write
-            st.rerun()    # 🔁 clean restart of the app
-    else:
-        # Load data
-        cases_df = read_sheet_df("cases", expected_cols=[
-            "case_id","resident_email","date","specialty_id","procedure_id","attending_id","notes","case_complexity","overall_performance"
-        ])
-        scores_df = read_sheet_df("scores", expected_cols=[
-            "case_id","step_id","rating","rating_num","case_complexity","overall_performance"
-        ])
-        steps_df = read_sheet_df("steps", expected_cols=["step_id","procedure_id","step_order","step_name"])
-        procs_df = read_sheet_df("procedures", expected_cols=["procedure_id","procedure_name","specialty_id"])
-        atnds_df = read_sheet_df("attendings", expected_cols=["attending_id","attending_name","specialty_id","email"])
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
 
-        # Ensure new columns exist (for older CSVs created before the update)
+    else:
+        # --- Load data from Google Sheets ---
+        cases_df = read_sheet_df(
+            SHEET_CASES,
+            expected_cols=[
+                "case_id", "resident_email", "date", "specialty_id", "procedure_id",
+                "attending_id", "notes", "case_complexity", "overall_performance"
+            ]
+        )
+        scores_df = read_sheet_df(
+            SHEET_SCORES,
+            expected_cols=[
+                "case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"
+            ]
+        )
+        steps_df = read_sheet_df(
+            SHEET_STEPS,
+            expected_cols=["step_id", "procedure_id", "step_order", "step_name"]
+        )
+        procs_df = read_sheet_df(
+            SHEET_PROCEDURES,
+            expected_cols=["procedure_id", "procedure_name", "specialty_id"]
+        )
+        atnds_df = read_sheet_df(
+            SHEET_ATTENDINGS,
+            expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
+        )
+
+        # --- Ensure expected columns exist ---
         for col in ["case_complexity", "overall_performance"]:
             if col not in scores_df.columns:
                 scores_df[col] = pd.NA
-        # Filter cases for this resident
+
+        # --- Filter cases for this resident ---
         res_cases = cases_df[cases_df["resident_email"] == resident]
         if res_cases.empty:
             st.info("No cases logged yet.")
             if st.button("⬅️ Back to Home"):
                 st.session_state["page"] = "home"
-                st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-                time.sleep(1)              # ⏳ lets Google confirm the write
-                st.rerun()    # 🔁 clean restart of the app
+                st.cache_data.clear()
+                time.sleep(1)
+                st.rerun()
         else:
-            # --- Prepare small, clearly named slices to avoid column collisions ---
-            res_cases_small = res_cases[["case_id", "date", "procedure_id", "attending_id"]].rename(
-                columns={"procedure_id": "case_procedure_id"}
-            )
-            steps_small = steps_df[["step_id", "procedure_id", "step_name", "step_order"]].rename(
-                columns={"procedure_id": "step_procedure_id"}
-            )
+            # --- Prepare smaller tables for merging ---
+            res_cases_small = res_cases[
+                ["case_id", "date", "procedure_id", "attending_id"]
+            ].rename(columns={"procedure_id": "case_procedure_id"})
+
+            steps_small = steps_df[
+                ["step_id", "procedure_id", "step_name", "step_order"]
+            ].rename(columns={"procedure_id": "step_procedure_id"})
+
             atnds_small = atnds_df[["attending_id", "attending_name"]]
             procs_map = procs_df.set_index("procedure_id")["procedure_name"].to_dict()
 
-            # --- Safe merges (keep complexity + performance) ---
+            # --- Merge all relevant data ---
             merged = (
-                scores_df[["case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"]]
+                scores_df[
+                    ["case_id", "step_id", "rating", "rating_num",
+                     "case_complexity", "overall_performance"]
+                ]
                 .merge(res_cases_small, on="case_id", how="inner")
                 .merge(steps_small, on="step_id", how="left")
                 .merge(atnds_small, on="attending_id", how="left")
@@ -815,11 +840,11 @@ elif st.session_state["page"] == "cumulative":
                 st.info("No assessment items yet.")
                 if st.button("⬅️ Back to Home"):
                     st.session_state["page"] = "home"
-                    st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-                    time.sleep(1)              # ⏳ lets Google confirm the write
-                    st.rerun()    # 🔁 clean restart of the app
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
             else:
-                # --- Choose which procedure's cumulative view to show ---
+                # --- Procedure selection dropdown ---
                 proc_ids = merged["case_procedure_id"].dropna().unique()
                 selected_proc = st.selectbox(
                     "Select a procedure to view",
@@ -827,32 +852,34 @@ elif st.session_state["page"] == "cumulative":
                     format_func=lambda x: procs_map.get(x, x)
                 )
 
-                # Filter to selected procedure
+                # --- Filter to selected procedure ---
                 proc_data = merged[merged["case_procedure_id"] == selected_proc]
 
-                # Respect the defined step order for that procedure
+                # --- Order steps correctly ---
                 ordered_steps = (
                     steps_df[steps_df["procedure_id"] == selected_proc]
                     .sort_values("step_order")["step_name"]
                     .tolist()
                 )
 
-                # Pivot: each case per row, steps as columns + complexity/performance
+                # --- Pivot data for visualization ---
                 pivot = proc_data.pivot_table(
-                    index=["date", "attending_name", "case_id", "case_complexity", "overall_performance"],
+                    index=["date", "attending_name", "case_id",
+                           "case_complexity", "overall_performance"],
                     columns="step_name",
                     values="rating",
                     aggfunc="first"
                 ).reset_index()
 
-                # Reorder the columns to match step order
-                cols = ["date", "attending_name", "case_id", "case_complexity", "overall_performance"] + ordered_steps
+                # --- Ensure consistent column order ---
+                cols = ["date", "attending_name", "case_id",
+                        "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
                     if c not in pivot.columns:
                         pivot[c] = pd.NA
                 pivot = pivot[cols]
 
-                # Color map for on-screen heatmap (steps only)
+                # --- Color map for visualization ---
                 def color_map(val):
                     if val == "Not Done":
                         return "background-color: lightgray; color: black"
@@ -868,7 +895,8 @@ elif st.session_state["page"] == "cumulative":
                         return "background-color: green; color: white"
                     return ""
 
-                st.dataframe(pivot.style.applymap(color_map, subset=ordered_steps), use_container_width=True)
+                st.dataframe(pivot.style.applymap(color_map, subset=ordered_steps),
+                             use_container_width=True)
 
                 # --- Export to Excel with colors ---
                 output = io.BytesIO()
@@ -878,17 +906,20 @@ elif st.session_state["page"] == "cumulative":
 
                     from openpyxl.styles import PatternFill, Font
                     fill_map = {
-                        "Not Done": PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid"),
-                        "Not Yet": PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid"),
-                        "Steer": PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid"),
-                        "Prompt": PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid"),
-                        "Back up": PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid"),
-                        "Auto": PatternFill(start_color="008000", end_color="008000", fill_type="solid"),
+                        "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
+                        "Not Yet": PatternFill(start_color="FF0000", fill_type="solid"),
+                        "Steer": PatternFill(start_color="FFA500", fill_type="solid"),
+                        "Prompt": PatternFill(start_color="FFD700", fill_type="solid"),
+                        "Back up": PatternFill(start_color="90EE90", fill_type="solid"),
+                        "Auto": PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    # Only color step columns, not metadata columns
-                    start_col = 6  # Excel columns A=1, so metadata=5 cols → steps start at col 6
-                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=start_col, max_col=5+len(ordered_steps)):
+                    # Apply colors to step cells
+                    start_col = 6
+                    for row in ws.iter_rows(
+                        min_row=2, max_row=ws.max_row,
+                        min_col=start_col, max_col=5 + len(ordered_steps)
+                    ):
                         for cell in row:
                             if cell.value in fill_map:
                                 cell.fill = fill_map[cell.value]
@@ -904,10 +935,6 @@ elif st.session_state["page"] == "cumulative":
 
                 if st.button("⬅️ Back to Home"):
                     st.session_state["page"] = "home"
-                    st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-                    time.sleep(1)              # ⏳ lets Google confirm the write
-                    st.rerun()    # 🔁 clean restart of the app
-              
-
-                   
-           
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
