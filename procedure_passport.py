@@ -465,7 +465,7 @@ elif st.session_state["page"] == "admin":
                 st.success(f"✅ Added specialty {new_spec_name} ({new_spec_id})")
                 st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
                 time.sleep(1)              # ⏳ lets Google confirm the write
-                st.experimental_rerun()    # 🔁 clean restart of the app
+                st.rerun()
         else:
             st.error("Please enter both an ID and a name for the specialty.")
     # -------------------
@@ -486,7 +486,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"Added {new_res_email}")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
 
     # Delete resident
     if not residents.empty:
@@ -497,7 +497,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"Deleted {del_res_email}")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
 
     st.markdown("---")
 
@@ -526,7 +526,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"Added {new_att_name}")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
         else:
             st.error("Please enter an attending name.")
 
@@ -539,7 +539,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"Deleted {del_att}")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
 
     st.markdown("---")
 
@@ -563,7 +563,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"✅ Added procedure {new_proc_name} ({new_proc_id})")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
         else:
             st.error("Please fill in all fields and steps.")
 
@@ -606,7 +606,7 @@ elif st.session_state["page"] == "admin":
             st.success(f"✅ Procedure '{new_name}' updated successfully!")
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
     # -------------------
     # Navigation Buttons
     # -------------------
@@ -639,7 +639,7 @@ elif st.session_state["page"] == "home":
         st.session_state["page"] = "login"
         st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
         time.sleep(1)              # ⏳ lets Google confirm the write
-        st.experimental_rerun()    # 🔁 clean restart of the app
+        st.rerun()    # 🔁 clean restart of the app
 # -----------------------------
 # PAGE: START CASE
 # -----------------------------
@@ -766,7 +766,7 @@ elif st.session_state["page"] == "cumulative":
             st.session_state["page"] = "home"
             st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
             time.sleep(1)              # ⏳ lets Google confirm the write
-            st.experimental_rerun()    # 🔁 clean restart of the app
+            st.rerun()    # 🔁 clean restart of the app
     else:
         # Load data
         cases_df = read_sheet_df("cases", expected_cols=[
@@ -791,7 +791,7 @@ elif st.session_state["page"] == "cumulative":
                 st.session_state["page"] = "home"
                 st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
                 time.sleep(1)              # ⏳ lets Google confirm the write
-                st.experimental_rerun()    # 🔁 clean restart of the app
+                st.rerun()    # 🔁 clean restart of the app
         else:
             # --- Prepare small, clearly named slices to avoid column collisions ---
             res_cases_small = res_cases[["case_id", "date", "procedure_id", "attending_id"]].rename(
@@ -817,7 +817,7 @@ elif st.session_state["page"] == "cumulative":
                     st.session_state["page"] = "home"
                     st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
                     time.sleep(1)              # ⏳ lets Google confirm the write
-                    st.experimental_rerun()    # 🔁 clean restart of the app
+                    st.rerun()    # 🔁 clean restart of the app
             else:
                 # --- Choose which procedure's cumulative view to show ---
                 proc_ids = merged["case_procedure_id"].dropna().unique()
@@ -906,7 +906,7 @@ elif st.session_state["page"] == "cumulative":
                     st.session_state["page"] = "home"
                     st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
                     time.sleep(1)              # ⏳ lets Google confirm the write
-                    st.experimental_rerun()    # 🔁 clean restart of the app
+                    st.rerun()    # 🔁 clean restart of the app
               
 
                    
