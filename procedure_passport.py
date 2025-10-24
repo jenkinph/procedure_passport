@@ -153,16 +153,24 @@ def save_case(
     case_complexity=None,
     overall_performance=None
 ):
+    """Save a completed case and its step scores to Google Sheets."""
     case_id = uuid.uuid4().hex[:12]
-    cases = pd.read_csv(CASES_CSV)
 
-    # Ensure new columns exist
-    if "case_complexity" not in cases.columns:
-        cases["case_complexity"] = None
-    if "overall_performance" not in cases.columns:
-        cases["overall_performance"] = None
+    # --- CASES SHEET ---
+    case_cols = [
+        "case_id",
+        "resident_email",
+        "date",
+        "specialty_id",
+        "procedure_id",
+        "attending_id",
+        "notes",
+        "case_complexity",
+        "overall_performance",
+    ]
+    cases_df = read_sheet_df("cases", expected_cols=case_cols)
 
-    cases.loc[len(cases)] = {
+    new_case_row = {
         "case_id": case_id,
         "resident_email": resident_email,
         "date": str(date),
@@ -173,20 +181,34 @@ def save_case(
         "case_complexity": case_complexity,
         "overall_performance": overall_performance,
     }
-    cases.to_csv(CASES_CSV, index=False)
 
-    # Save scores (include complexity + performance with each row)
-    scores = pd.read_csv(SCORES_CSV)
+    cases_df = pd.concat([cases_df, pd.DataFrame([new_case_row])], ignore_index=True)
+    write_sheet_df("cases", cases_df)
+
+    # --- SCORES SHEET ---
+    score_cols = [
+        "case_id",
+        "step_id",
+        "rating",
+        "rating_num",
+        "case_complexity",
+        "overall_performance",
+    ]
+    scores_df = read_sheet_df("scores", expected_cols=score_cols)
+
+    new_score_rows = []
     for step_id, rating in scores_dict.items():
-        scores.loc[len(scores)] = {
+        new_score_rows.append({
             "case_id": case_id,
             "step_id": step_id,
             "rating": rating,
             "rating_num": RATING_TO_NUM.get(rating, None),
             "case_complexity": case_complexity,
             "overall_performance": overall_performance,
-        }
-    scores.to_csv(SCORES_CSV, index=False)
+        })
+
+    scores_df = pd.concat([scores_df, pd.DataFrame(new_score_rows)], ignore_index=True)
+    write_sheet_df("scores", scores_df)
 
     return case_id
 
