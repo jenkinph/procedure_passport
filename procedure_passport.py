@@ -126,13 +126,13 @@ def bootstrap_reference_data():
         ]).to_csv(SCORES_CSV, index=False)
 
 def load_refs():
-    """Load reference data from CSVs into DataFrames."""
-    return (
-        pd.read_csv(SPECIALTIES_CSV),
-        pd.read_csv(PROCEDURES_CSV),
-        pd.read_csv(STEPS_CSV),
-        pd.read_csv(ATTENDINGS_CSV),
-    )
+    """Load reference data from Google Sheets into DataFrames."""
+    spec_df = read_sheet_df(SHEET_PROCEDURES.replace("procedures", "specialties"),
+                            expected_cols=["specialty_id", "specialty_name"])
+    proc_df = read_sheet_df(SHEET_PROCEDURES, expected_cols=["procedure_id", "procedure_name", "specialty_id"])
+    steps_df = read_sheet_df(SHEET_STEPS, expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
+    atnd_df = read_sheet_df(SHEET_ATTENDINGS, expected_cols=["attending_id", "attending_name", "specialty_id", "email"])
+    return spec_df, proc_df, steps_df, atnd_df
 
 def ensure_resident(email, name=""):
     """Add a resident to the residents sheet if not already present."""
@@ -403,7 +403,33 @@ if st.session_state["page"] == "login":
 # -------------------
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
+    # -------------------
+    # Specialties Section
+    # -------------------
+    st.subheader("Specialties")
 
+    specialties = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+    st.dataframe(specialties)
+
+    new_spec_id = st.text_input("New specialty ID (short code, e.g., GS)")
+    new_spec_name = st.text_input("New specialty name (e.g., General Surgery)")
+
+    if st.button("Add Specialty"):
+        if new_spec_id and new_spec_name:
+            # prevent duplicates
+            if new_spec_id in specialties["specialty_id"].values:
+                st.warning("This specialty already exists.")
+            else:
+                new_row = pd.DataFrame([{
+                    "specialty_id": new_spec_id,
+                    "specialty_name": new_spec_name
+                }])
+                specialties = pd.concat([specialties, new_row], ignore_index=True)
+                write_sheet_df("specialties", specialties)
+                st.success(f"✅ Added specialty {new_spec_name} ({new_spec_id})")
+                st.rerun()
+        else:
+            st.error("Please enter both an ID and a name for the specialty.")
     # -------------------
     # Residents Section
     # -------------------
@@ -494,7 +520,43 @@ elif st.session_state["page"] == "admin":
             st.error("Please fill in all fields and steps.")
 
     st.markdown("---")
+    # -------------------
+    # Edit Existing Procedure Section
+    # -------------------
+    st.subheader("Edit Existing Procedure")
 
+    procs_df = read_sheet_df(SHEET_PROCEDURES, expected_cols=["procedure_id", "procedure_name", "specialty_id"])
+    if procs_df.empty:
+        st.info("No procedures found yet.")
+    else:
+        edit_proc = st.selectbox("Select procedure to edit", procs_df["procedure_name"])
+        selected_proc_id = procs_df.loc[procs_df["procedure_name"] == edit_proc, "procedure_id"].values[0]
+
+        new_name = st.text_input("Updated procedure name", value=edit_proc)
+        new_steps_input = st.text_area("Updated steps (one per line, leave blank to keep current steps)")
+        new_steps = [s.strip() for s in new_steps_input.split("\n") if s.strip()]
+
+        if st.button("Update Procedure"):
+            # update name
+            procs_df.loc[procs_df["procedure_id"] == selected_proc_id, "procedure_name"] = new_name
+            write_sheet_df(SHEET_PROCEDURES, procs_df)
+
+            # optionally update steps
+            if new_steps:
+                steps_df = read_sheet_df(SHEET_STEPS, expected_cols=["step_id", "procedure_id", "step_order", "step_name"])
+                steps_df = steps_df[steps_df["procedure_id"] != selected_proc_id]
+                updated_steps = pd.DataFrame([
+                    {"step_id": f"S_{selected_proc_id}_{i+1:02d}",
+                     "procedure_id": selected_proc_id,
+                     "step_order": i + 1,
+                     "step_name": s}
+                    for i, s in enumerate(new_steps)
+                ])
+                steps_df = pd.concat([steps_df, updated_steps], ignore_index=True)
+                write_sheet_df(SHEET_STEPS, steps_df)
+
+            st.success(f"✅ Procedure '{new_name}' updated successfully!")
+            st.rerun()
     # -------------------
     # Navigation Buttons
     # -------------------
