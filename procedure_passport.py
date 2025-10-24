@@ -416,11 +416,29 @@ if st.session_state["page"] == "login":
 # -------------------
 # PAGE: ADMIN PANEL
 # -------------------
+# -------------------
+# PAGE: ADMIN PANEL
+# -------------------
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
+
+    # Prevent reload loop
+    if "reloaded" not in st.session_state:
+        st.session_state["reloaded"] = False
+
+    # Reload button (safe version)
     if st.button("🔄 Reload Google Sheet Data"):
         st.cache_data.clear()
-        st.experimental_rerun()
+        st.session_state["reloaded"] = True
+        st.rerun()  # normal rerun
+
+    # Only reset flag *after* reload
+    if st.session_state["reloaded"]:
+        st.session_state["reloaded"] = False
+        st.success("✅ Data refreshed successfully!")
+
+    # Debug marker (helps confirm the panel renders)
+    st.write("✅ Admin Panel Loaded")
     # -------------------
     # Specialties Section
     # -------------------
