@@ -206,6 +206,41 @@ def get_gs_client():
         ],
     )
     return gspread.authorize(creds)
+def get_sheet(sheet_name: str):
+    """Return a gspread worksheet by name, creating if missing."""
+    gc = get_gs_client()
+    sh = gc.open_by_key(st.secrets["GOOGLE_SHEET_KEY"])
+    try:
+        ws = sh.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        # create with 100 rows, 20 cols, empty
+        ws = sh.add_worksheet(title=sheet_name, rows="200", cols="20")
+    return ws
+
+def read_sheet_df(sheet_name: str, expected_cols=None):
+    """Read a worksheet into a clean pandas DataFrame with given columns guaranteed."""
+    ws = get_sheet(sheet_name)
+    df = get_as_dataframe(ws, evaluate_formulas=True, header=0)
+    df = df.dropna(how="all")
+    if df.empty and expected_cols:
+        # create empty frame with known columns if sheet is brand new
+        df = pd.DataFrame(columns=expected_cols)
+    else:
+        # if sheet had no header row, gspread gives unnamed columns like 0,1,2...
+        if expected_cols and set(expected_cols) - set(df.columns):
+            # force missing columns to exist
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            # also reorder
+            df = df[expected_cols]
+    return df
+
+def write_sheet_df(sheet_name: str, df: pd.DataFrame):
+    """Overwrite a worksheet with the dataframe (including headers)."""
+    ws = get_sheet(sheet_name)
+    ws.clear()
+    set_with_dataframe(ws, df, include_index=False, include_column_header=True)
 def test_google_sheets_connection():
     """Simple test to confirm connection to Google Sheets."""
     try:
