@@ -1,26 +1,31 @@
 import streamlit as st
 import time
 import pandas as pd
-import os
 import uuid
 import datetime
 import io
-from openpyxl.styles import PatternFill
-import json
 import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
 
 # --- Session State Init ---
-if "page" not in st.session_state: 
+# -----------------------------
+# SESSION STATE
+# -----------------------------
+if "page" not in st.session_state:
     st.session_state["page"] = "login"
-
-if "resident" not in st.session_state: 
+if "resident" not in st.session_state:
     st.session_state["resident"] = None
-
-if "resident_name" not in st.session_state: 
+if "resident_name" not in st.session_state:
     st.session_state["resident_name"] = ""
-
+if "scores" not in st.session_state:
+    st.session_state["scores"] = {}
+if "date" not in st.session_state:
+    st.session_state["date"] = datetime.date.today()
+if "notes" not in st.session_state:
+    st.session_state["notes"] = ""
+if "current_case_id" not in st.session_state:
+    st.session_state["current_case_id"] = None
 # -----------------------------
 # CONFIG
 # -----------------------------
@@ -38,17 +43,6 @@ RATING_COLOR = {
 }
 
 # -----------------------------
-# FILES
-# -----------------------------
-SPECIALTIES_CSV = "specialties.csv"
-PROCEDURES_CSV  = "procedures.csv"
-STEPS_CSV       = "steps.csv"
-ATTENDINGS_CSV  = "attendings.csv"
-RESIDENTS_CSV   = "residents.csv"
-CASES_CSV       = "cases.csv"
-SCORES_CSV      = "scores.csv"
-
-# -----------------------------
 # GOOGLE SHEET TAB NAMES
 # -----------------------------
 SHEET_RESIDENTS  = "residents"
@@ -58,73 +52,6 @@ SHEET_STEPS      = "steps"
 SHEET_CASES      = "cases"
 SHEET_SCORES     = "scores"
 
-def bootstrap_reference_data():
-    if not os.path.exists(SPECIALTIES_CSV):
-        pd.DataFrame([
-            {"specialty_id":"GS","specialty_name":"General Surgery"},
-            {"specialty_id":"OB","specialty_name":"OB/GYN"},
-            {"specialty_id":"URO","specialty_name":"Urology"},
-        ]).to_csv(SPECIALTIES_CSV,index=False)
-
-    if not os.path.exists(PROCEDURES_CSV):
-        pd.DataFrame([
-            {"procedure_id":"LAPAPP","procedure_name":"Laparoscopic Appendectomy","specialty_id":"GS"},
-            {"procedure_id":"HYST","procedure_name":"Hysterectomy (BS vs BSO)","specialty_id":"OB"},
-            {"procedure_id":"NEPH","procedure_name":"Nephrectomy","specialty_id":"URO"},
-        ]).to_csv(PROCEDURES_CSV,index=False)
-
-    if not os.path.exists(STEPS_CSV):
-        pd.DataFrame([
-            # Appendectomy steps
-            {"step_id":"S_LAP_01","procedure_id":"LAPAPP","step_order":1,"step_name":"Establish pneumoperitoneum"},
-            {"step_id":"S_LAP_02","procedure_id":"LAPAPP","step_order":2,"step_name":"Place ports"},
-            {"step_id":"S_LAP_03","procedure_id":"LAPAPP","step_order":3,"step_name":"Control mesoappendix"},
-            {"step_id":"S_LAP_04","procedure_id":"LAPAPP","step_order":4,"step_name":"Divide appendix base"},
-
-            # Hysterectomy steps
-            {"step_id":"S_HYST_01","procedure_id":"HYST","step_order":1,"step_name":"Exposure of the uterus/tubes/ovaries"},
-            {"step_id":"S_HYST_02","procedure_id":"HYST","step_order":2,"step_name":"Identification of the ureters (transperitoneal vs retroperitoneal)"},
-            {"step_id":"S_HYST_03","procedure_id":"HYST","step_order":3,"step_name":"Bilateral Salpingectomy"},
-            {"step_id":"S_HYST_04","procedure_id":"HYST","step_order":4,"step_name":"Uterine ovarian ligament cauterization/transection"},
-            {"step_id":"S_HYST_05","procedure_id":"HYST","step_order":5,"step_name":"Skeletonization IP ligaments"},
-            {"step_id":"S_HYST_06","procedure_id":"HYST","step_order":6,"step_name":"Ligation IP ligaments"},
-            {"step_id":"S_HYST_07","procedure_id":"HYST","step_order":7,"step_name":"Ligation/transection round ligaments"},
-            {"step_id":"S_HYST_08","procedure_id":"HYST","step_order":8,"step_name":"Dissection posterior and anterior leaflets of broad ligament"},
-            {"step_id":"S_HYST_09","procedure_id":"HYST","step_order":9,"step_name":"Bladder flap creation"},
-            {"step_id":"S_HYST_10","procedure_id":"HYST","step_order":10,"step_name":"Skeletonization uterine vessels"},
-            {"step_id":"S_HYST_11","procedure_id":"HYST","step_order":11,"step_name":"Uterine vessel ligation and transection"},
-            {"step_id":"S_HYST_12","procedure_id":"HYST","step_order":12,"step_name":"Colpotomy"},
-            {"step_id":"S_HYST_13","procedure_id":"HYST","step_order":13,"step_name":"Removal of uterus and fallopian tubes"},
-            {"step_id":"S_HYST_14","procedure_id":"HYST","step_order":14,"step_name":"Cuff closure"},
-
-            # Nephrectomy steps
-            {"step_id":"S_NEPH_01","procedure_id":"NEPH","step_order":1,"step_name":"Mobilize kidney"},
-            {"step_id":"S_NEPH_02","procedure_id":"NEPH","step_order":2,"step_name":"Control renal vessels"},
-            {"step_id":"S_NEPH_03","procedure_id":"NEPH","step_order":3,"step_name":"Remove specimen"},
-        ]).to_csv(STEPS_CSV,index=False)
-
-    if not os.path.exists(ATTENDINGS_CSV):
-        pd.DataFrame([
-            {"attending_id":"A_GS_SMITH","attending_name":"Dr. Alex Smith","specialty_id":"GS"},
-            {"attending_id":"A_OB_JONES","attending_name":"Dr. Robin Jones","specialty_id":"OB"},
-            {"attending_id":"A_URO_LEE","attending_name":"Dr. Casey Lee","specialty_id":"URO"},
-        ]).to_csv(ATTENDINGS_CSV,index=False)
-
-    if not os.path.exists(RESIDENTS_CSV):
-        pd.DataFrame(columns=["email","name","created_at"]).to_csv(RESIDENTS_CSV,index=False)
-
-    if not os.path.exists(CASES_CSV):
-        pd.DataFrame(columns=["case_id","resident_email","date","specialty_id","procedure_id","attending_id","notes"]).to_csv(CASES_CSV,index=False)
-
-    if not os.path.exists(SCORES_CSV):
-        pd.DataFrame(columns=[
-            "case_id",
-            "step_id",
-            "rating",
-            "rating_num",
-            "case_complexity",
-            "overall_performance"
-        ]).to_csv(SCORES_CSV, index=False)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_refs():
@@ -363,22 +290,12 @@ def go_back(page):
     st.rerun()
 
 # -----------------------------
-# SESSION STATE
-# -----------------------------
-bootstrap_reference_data()
-if "page" not in st.session_state: st.session_state["page"] = "login"
-if "user_email" not in st.session_state: st.session_state["user_email"] = None
-if "user_name" not in st.session_state: st.session_state["user_name"] = ""
-if "scores" not in st.session_state: st.session_state["scores"] = {}
-if "date" not in st.session_state: st.session_state["date"] = datetime.date.today()
-if "notes" not in st.session_state: st.session_state["notes"] = ""
-if "current_case_id" not in st.session_state: st.session_state["current_case_id"] = None
-
-# -----------------------------
 # SIDEBAR
 # -----------------------------
-if st.session_state["user_email"] in ADMINS:
-    if st.sidebar.button("Admin Panel"):
+st.sidebar.title("Procedure Passport")
+
+if st.session_state.get("resident") in ADMINS:
+    if st.sidebar.button("⚙️ Admin Panel"):
         go_next("admin")
 
 # -----------------------------
