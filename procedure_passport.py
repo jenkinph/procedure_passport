@@ -320,23 +320,21 @@ if st.session_state["page"] == "login":
         if not email:
             st.error("Please enter an email.")
         else:
-            try:
-                residents = pd.read_csv(RESIDENTS_CSV)
-            except FileNotFoundError:
-                residents = pd.DataFrame(columns=["email","name","created_at"])
+            # ✅ Load residents directly from Google Sheets
+            residents = read_sheet_df("residents", expected_cols=["email","name","created_at"])
 
-            # 🔹 Only allow login if email exists
-            if email in residents["email"].values or email in ADMINS:
+            # 🔹 Allow login for admins or registered residents
+            if email in ADMINS:
+                st.session_state["resident"] = email
+                st.session_state["resident_name"] = "Admin"
+                st.session_state["page"] = "admin"
+                st.rerun()
+            elif email in residents["email"].values:
                 st.session_state["resident"] = email
                 st.session_state["resident_name"] = (
-                    residents.loc[residents["email"]==email,"name"].values[0]
-                    if email in residents["email"].values else "Admin"
+                    residents.loc[residents["email"] == email, "name"].values[0]
                 )
-                # Route admin → admin page, resident → home
-                if email in ADMINS:
-                    st.session_state["page"] = "admin"
-                else:
-                    st.session_state["page"] = "home"
+                st.session_state["page"] = "home"
                 st.rerun()
             else:
                 st.error("❌ Email not recognized. Contact an admin to be added.")
