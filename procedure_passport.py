@@ -125,15 +125,22 @@ def load_refs():
     )
 
 def ensure_resident(email, name=""):
-    """Add a resident to residents.csv if not already present."""
-    res = pd.read_csv(RESIDENTS_CSV)
-    if not (res["email"] == email).any():
-        res.loc[len(res)] = {
+    """Add a resident to the residents sheet if not already present."""
+    cols = ["email","name","created_at"]
+
+    # read current residents from Google Sheets
+    df = read_sheet_df("residents", expected_cols=cols)
+
+    # if they're not already in there, append and write back
+    if email not in df["email"].values:
+        new_row = {
             "email": email,
             "name": name,
             "created_at": datetime.datetime.utcnow().isoformat()
         }
-        res.to_csv(RESIDENTS_CSV, index=False)
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+        write_sheet_df("residents", df)
 
 def save_case(
     resident_email,
@@ -183,7 +190,6 @@ def save_case(
 
     return case_id
 
-    
 
 def style_df(df, col):
     """Apply color styling to a dataframe column based on rating."""
@@ -323,25 +329,31 @@ elif st.session_state["page"] == "admin":
 if st.button("🔌 Test Google Sheets Connection"):
     test_google_sheets_connection()
 
-    st.subheader("Residents")
-    residents = pd.read_csv(RESIDENTS_CSV)
-    st.dataframe(residents)
+st.subheader("Residents")
 
-    new_res_email = st.text_input("New resident email")
-    new_res_name = st.text_input("Resident name")
-    if st.button("Add resident"):
-        if new_res_email:
-            ensure_resident(new_res_email, new_res_name)
-            st.success(f"Added {new_res_email}")
-            st.rerun()
+# load residents from Google Sheets
+residents = read_sheet_df("residents", expected_cols=["email","name","created_at"])
+st.dataframe(residents)
 
-    if not residents.empty:
-        del_res_email = st.selectbox("Select resident to delete", residents["email"])
-        if st.button("Delete selected resident"):
-            residents = residents[residents["email"] != del_res_email]
-            residents.to_csv(RESIDENTS_CSV,index=False)
-            st.success(f"Deleted {del_res_email}")
-            st.rerun()
+# add resident
+new_res_email = st.text_input("New resident email")
+new_res_name = st.text_input("Resident name")
+if st.button("Add resident"):
+    if new_res_email:
+        ensure_resident(new_res_email, new_res_name)
+        st.success(f"Added {new_res_email}")
+        st.rerun()
+
+# delete resident
+if not residents.empty:
+    del_res_email = st.selectbox("Select resident to delete", residents["email"])
+    if st.button("Delete selected resident"):
+        # filter them out in-memory
+        updated = residents[residents["email"] != del_res_email].reset_index(drop=True)
+        # write updated list back to Google Sheets
+        write_sheet_df("residents", updated)
+        st.success(f"Deleted {del_res_email}")
+        st.rerun()
 
     st.subheader("Attendings")
     attendings = pd.read_csv(ATTENDINGS_CSV)
