@@ -47,6 +47,16 @@ RESIDENTS_CSV   = "residents.csv"
 CASES_CSV       = "cases.csv"
 SCORES_CSV      = "scores.csv"
 
+# -----------------------------
+# GOOGLE SHEET TAB NAMES
+# -----------------------------
+SHEET_RESIDENTS  = "residents"
+SHEET_ATTENDINGS = "attendings"
+SHEET_PROCEDURES = "procedures"
+SHEET_STEPS      = "steps"
+SHEET_CASES      = "cases"
+SHEET_SCORES     = "scores"
+
 def bootstrap_reference_data():
     if not os.path.exists(SPECIALTIES_CSV):
         pd.DataFrame([
@@ -141,6 +151,55 @@ def ensure_resident(email, name=""):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
         write_sheet_df("residents", df)
+def ensure_attending(name, specialty_id, email=""):
+    """Add a new attending to the attendings sheet if not already present."""
+    cols = ["attending_id", "attending_name", "specialty_id", "email"]
+    df = read_sheet_df(SHEET_ATTENDINGS, expected_cols=cols)
+
+    # Prevent duplicates by name
+    if name not in df["attending_name"].values:
+        att_id = "A_" + specialty_id + "_" + name.replace(" ", "_").upper()
+        new_row = {
+            "attending_id": att_id,
+            "attending_name": name,
+            "specialty_id": specialty_id,
+            "email": email,
+        }
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        write_sheet_df(SHEET_ATTENDINGS, df)
+
+
+def ensure_procedure(proc_id, proc_name, specialty_id, steps_list):
+    """Add a new procedure and its steps to the sheets if not already present."""
+    # --- PROCEDURE ---
+    proc_cols = ["procedure_id", "procedure_name", "specialty_id"]
+    procs_df = read_sheet_df(SHEET_PROCEDURES, expected_cols=proc_cols)
+
+    if proc_id not in procs_df["procedure_id"].values:
+        new_proc = pd.DataFrame([{
+            "procedure_id": proc_id,
+            "procedure_name": proc_name,
+            "specialty_id": specialty_id,
+        }])
+        procs_df = pd.concat([procs_df, new_proc], ignore_index=True)
+        write_sheet_df(SHEET_PROCEDURES, procs_df)
+
+    # --- STEPS ---
+    step_cols = ["step_id", "procedure_id", "step_order", "step_name"]
+    steps_df = read_sheet_df(SHEET_STEPS, expected_cols=step_cols)
+
+    if not (steps_df["procedure_id"] == proc_id).any():
+        new_steps = pd.DataFrame([
+            {
+                "step_id": f"S_{proc_id}_{i+1:02d}",
+                "procedure_id": proc_id,
+                "step_order": i + 1,
+                "step_name": step,
+            }
+            for i, step in enumerate(steps_list)
+        ])
+        steps_df = pd.concat([steps_df, new_steps], ignore_index=True)
+        write_sheet_df(SHEET_STEPS, steps_df)
 
 def save_case(
     resident_email,
@@ -345,17 +404,16 @@ if st.session_state["page"] == "login":
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
 
-# --- Google Sheets test button ---
-    if st.button("🔌 Test Google Sheets Connection"):
-    test_google_sheets_connection()
-
+    # -------------------
+    # Residents Section
+    # -------------------
     st.subheader("Residents")
 
-    # load residents from Google Sheets
-    residents = read_sheet_df("residents", expected_cols=["email","name","created_at"])
+    # Load residents from Google Sheets
+    residents = read_sheet_df(SHEET_RESIDENTS, expected_cols=["email", "name", "created_at"])
     st.dataframe(residents)
 
-    # add resident
+    # Add new resident
     new_res_email = st.text_input("New resident email")
     new_res_name = st.text_input("Resident name")
     if st.button("Add resident"):
@@ -364,88 +422,89 @@ elif st.session_state["page"] == "admin":
             st.success(f"Added {new_res_email}")
             st.rerun()
 
-    # delete resident
+    # Delete resident
     if not residents.empty:
         del_res_email = st.selectbox("Select resident to delete", residents["email"])
         if st.button("Delete selected resident"):
-            # filter them out in-memory
             updated = residents[residents["email"] != del_res_email].reset_index(drop=True)
-            # write updated list back to Google Sheets
-            write_sheet_df("residents", updated)
+            write_sheet_df(SHEET_RESIDENTS, updated)
             st.success(f"Deleted {del_res_email}")
             st.rerun()
 
-        st.subheader("Attendings")
-        attendings = pd.read_csv(ATTENDINGS_CSV)
-        st.dataframe(attendings)
+    st.markdown("---")
 
-        spec_df, _, _, _ = load_refs()
-        new_att_name = st.text_input("New attending name")
-        new_att_spec = st.selectbox("Specialty for new attending", spec_df["specialty_name"])
-        if st.button("Add attending"):
-            spec_id = spec_df.loc[spec_df["specialty_name"]==new_att_spec,"specialty_id"].values[0]
-            new_att_id = "A_" + spec_id + "_" + new_att_name.replace(" ","_").upper()
-            attendings.loc[len(attendings)] = {"attending_id":new_att_id,"attending_name":new_att_name,"specialty_id":spec_id}
-            attendings.to_csv(ATTENDINGS_CSV,index=False)
+    # -------------------
+    # Attendings Section
+    # -------------------
+    st.subheader("Attendings")
+
+    attendings = read_sheet_df(
+        SHEET_ATTENDINGS,
+        expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
+    )
+    st.dataframe(attendings)
+
+    spec_df, _, _, _ = load_refs()
+    new_att_name = st.text_input("New attending name")
+    new_att_spec = st.selectbox("Specialty for new attending", spec_df["specialty_name"])
+    new_att_email = st.text_input("Attending email (optional)")
+
+    if st.button("Add attending"):
+        if new_att_name:
+            spec_id = spec_df.loc[
+                spec_df["specialty_name"] == new_att_spec, "specialty_id"
+            ].values[0]
+            ensure_attending(new_att_name, spec_id, new_att_email)
             st.success(f"Added {new_att_name}")
             st.rerun()
+        else:
+            st.error("Please enter an attending name.")
 
-        if not attendings.empty:
-            del_att = st.selectbox("Select attending to delete", attendings["attending_name"])
-            if st.button("Delete selected attending"):
-                attendings = attendings[attendings["attending_name"] != del_att]
-                attendings.to_csv(ATTENDINGS_CSV,index=False)
-                st.success(f"Deleted {del_att}")
-                st.rerun()
+    # Delete attending
+    if not attendings.empty:
+        del_att = st.selectbox("Select attending to delete", attendings["attending_name"])
+        if st.button("Delete selected attending"):
+            updated = attendings[attendings["attending_name"] != del_att].reset_index(drop=True)
+            write_sheet_df(SHEET_ATTENDINGS, updated)
+            st.success(f"Deleted {del_att}")
+            st.rerun()
 
-        st.subheader("Add New Procedure")
-        new_proc_id = st.text_input("Procedure ID (short code, e.g., CSEC)").upper()
-        new_proc_name = st.text_input("Procedure Name (e.g., Cesarean Section)")
-        new_proc_spec = st.selectbox("Specialty for new procedure", spec_df["specialty_name"])
+    st.markdown("---")
 
-        steps_input = st.text_area("Steps (one per line)")
-        new_proc_steps = [s.strip() for s in steps_input.split("\n") if s.strip()]
+    # -------------------
+    # Add New Procedure Section
+    # -------------------
+    st.subheader("Add New Procedure")
 
-        if st.button("Add Procedure"):
-            if new_proc_id and new_proc_name and new_proc_steps:
-                proc_df = pd.read_csv(PROCEDURES_CSV)
-                steps_df = pd.read_csv(STEPS_CSV)
-                spec_id = spec_df.loc[spec_df["specialty_name"]==new_proc_spec,"specialty_id"].values[0]
+    new_proc_id = st.text_input("Procedure ID (short code, e.g., CSEC)").upper()
+    new_proc_name = st.text_input("Procedure Name (e.g., Cesarean Section)")
+    new_proc_spec = st.selectbox("Specialty for new procedure", spec_df["specialty_name"])
+    steps_input = st.text_area("Steps (one per line)")
+    new_proc_steps = [s.strip() for s in steps_input.split("\n") if s.strip()]
 
-                # Add procedure
-                if new_proc_id not in proc_df["procedure_id"].values:
-                    new_proc = pd.DataFrame([{
-                        "procedure_id": new_proc_id,
-                        "procedure_name": new_proc_name,
-                        "specialty_id": spec_id
-                    }])
-                    proc_df = pd.concat([proc_df, new_proc], ignore_index=True)
-                    proc_df.to_csv(PROCEDURES_CSV, index=False)
+    if st.button("Add Procedure"):
+        if new_proc_id and new_proc_name and new_proc_steps:
+            spec_id = spec_df.loc[
+                spec_df["specialty_name"] == new_proc_spec, "specialty_id"
+            ].values[0]
+            ensure_procedure(new_proc_id, new_proc_name, spec_id, new_proc_steps)
+            st.success(f"✅ Added procedure {new_proc_name} ({new_proc_id})")
+            st.rerun()
+        else:
+            st.error("Please fill in all fields and steps.")
 
-                # Add steps
-                if not (steps_df["procedure_id"] == new_proc_id).any():
-                    new_steps = pd.DataFrame([
-                        {"step_id": f"S_{new_proc_id}_{i+1:02d}", "procedure_id": new_proc_id, "step_order": i+1, "step_name": step}
-                        for i, step in enumerate(new_proc_steps)
-                    ])
-                    steps_df = pd.concat([steps_df, new_steps], ignore_index=True)
-                    steps_df.to_csv(STEPS_CSV, index=False)
+    st.markdown("---")
 
-                st.success(f"✅ Added procedure {new_proc_name} ({new_proc_id})")
-                st.rerun()
-            else:
-                st.error("Please fill in all fields and steps")
-
+    # -------------------
+    # Navigation Buttons
+    # -------------------
+    col1, col2 = st.columns(2)
+    with col1:
         if st.button("⬅️ Back to Login"):
             go_back("login")
-            
-
-        # -------------------
-        # Navigation
-        # -------------------
-        if st.button("← Back to Start"):
-            go_back("start")
-    
+    with col2:
+        if st.button("🏠 Go to Start Page"):
+            go_next("start")
 # -------------------
 # PAGE: HOME (Resident landing page)
 # -------------------
