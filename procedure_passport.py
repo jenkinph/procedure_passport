@@ -418,9 +418,9 @@ if st.session_state["page"] == "login":
 # -------------------
 elif st.session_state["page"] == "admin":
     st.title("⚙️ Admin Panel")
-if st.button("🔄 Reload Google Sheet Data"):
-    st.cache_data.clear()
-    st.experimental_rerun()
+    if st.button("🔄 Reload Google Sheet Data"):
+        st.cache_data.clear()
+        st.experimental_rerun()
     # -------------------
     # Specialties Section
     # -------------------
