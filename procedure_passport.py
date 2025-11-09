@@ -758,11 +758,9 @@ elif st.session_state["page"] == "comments":
                 go_next("home")
 
 # -------------------
-# PAGE: Cumulative Dashboard (screenshot-friendly)
+# PAGE: Cumulative Dashboard (Google Sheets only)
 # -------------------
 elif st.session_state["page"] == "cumulative":
-    from html import escape  # for safe HTML labels
-
     st.title("📊 Cumulative Dashboard")
 
     resident = st.session_state.get("resident")
@@ -788,8 +786,7 @@ elif st.session_state["page"] == "cumulative":
         scores_df = read_sheet_df(
             SHEET_SCORES,
             expected_cols=[
-                "case_id", "step_id", "rating", "rating_num", "case_complexity",
-                "overall_performance"
+                "case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"
             ]
         )
         steps_df = read_sheet_df(
@@ -851,7 +848,7 @@ elif st.session_state["page"] == "cumulative":
                     time.sleep(1)
                     st.rerun()
             else:
-                # --- Choose procedure ---
+                # --- Procedure selection dropdown ---
                 proc_ids = merged["case_procedure_id"].dropna().unique()
                 selected_proc = st.selectbox(
                     "Select a procedure to view",
@@ -859,215 +856,229 @@ elif st.session_state["page"] == "cumulative":
                     format_func=lambda x: procs_map.get(x, x)
                 )
 
-                # --- Filter to that procedure ---
+                # --- Filter to selected procedure ---
                 proc_data = merged[merged["case_procedure_id"] == selected_proc]
 
-                # --- Ordered steps for that procedure ---
+                # --- Order steps correctly ---
                 ordered_steps = (
                     steps_df[steps_df["procedure_id"] == selected_proc]
                     .sort_values("step_order")["step_name"]
                     .tolist()
                 )
 
-                # --- Pivot for export & helper df ---
-                pivot = proc_data.pivot_table(
-                    index=["date", "attending_name", "case_id",
-                           "case_complexity", "overall_performance"],
-                    columns="step_name",
-                    values="rating",
-                    aggfunc="first"
-                ).reset_index()
+                if not ordered_steps:
+                    st.warning("No steps defined for this procedure yet.")
+                else:
+                    # --- Pivot data for visualization ---
+                    pivot = proc_data.pivot_table(
+                        index=["date", "attending_name", "case_id",
+                               "case_complexity", "overall_performance"],
+                        columns="step_name",
+                        values="rating",
+                        aggfunc="first"
+                    ).reset_index()
 
-                cols = ["date", "attending_name", "case_id",
-                        "case_complexity", "overall_performance"] + ordered_steps
-                for c in ordered_steps:
-                    if c not in pivot.columns:
-                        pivot[c] = pd.NA
-                pivot = pivot[cols]
+                    # --- Build display dataframe (no case_id column on screen) ---
+                    base_cols = ["date", "attending_name", "case_complexity", "overall_performance"]
+                    # Ensure all step columns are present
+                    for c in ordered_steps:
+                        if c not in pivot.columns:
+                            pivot[c] = pd.NA
 
-                # --- Display dataframe (no case_id, nice names) ---
-                display_df = pivot.drop(columns=["case_id"]).rename(columns={
-                    "date": "Date",
-                    "attending_name": "Attending",
-                    "case_complexity": "Complexity",
-                    "overall_performance": "O-Score",
-                })
+                    display_cols = base_cols + ordered_steps
+                    display_df = pivot[display_cols].copy()
 
-                # Sort newest first
-                try:
-                    display_df["Date"] = pd.to_datetime(display_df["Date"])
-                    display_df = display_df.sort_values("Date", ascending=False)
-                    display_df["Date"] = display_df["Date"].dt.date.astype(str)
-                except Exception:
-                    pass
+                    # --- Color mapping functions ---
 
-                # --- Color maps for cells (no text inside) ---
-                COMPLEXITY_COLOR = {
-                    "Straight Forward": "#90EE90",  # light green
-                    "Moderate":         "#FFD580",  # light orange
-                    "Complex":          "#FF7F7F",  # light red
-                }
-
-                O_SCORE_COLOR = {
-                    "1 - Not Yet":  "#ff4d4d",
-                    "2 - Steer":    "#ff944d",
-                    "3 - Prompt":   "#ffd633",
-                    "4 - Backup":   "#99e699",
-                    "5 - Auto":     "#33cc33",
-                }
-
-                def step_bg(val):
-                    css = RATING_COLOR.get(val, "")
-                    if "background-color" in css:
-                        return css.split(";")[0].split(":", 1)[1]
-                    return ""
-
-                def complexity_bg(val):
-                    return COMPLEXITY_COLOR.get(val, "")
-
-                def oscore_bg(val):
-                    return O_SCORE_COLOR.get(val, "")
-
-                # --- Build HTML table manually ---
-                st.markdown("### On-screen view (for screenshots)")
-                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
-
-                html = """
-<style>
-.heat-table-wrapper {
-  overflow-x: auto;
-}
-.heat-table {
-  border-collapse: collapse;
-  font-size: 11px;
-  table-layout: fixed;
-}
-.heat-table th, .heat-table td {
-  border: 1px solid rgba(150,150,150,0.7);
-  padding: 2px;
-}
-.heat-table th {
-  text-align: center;
-  background-color: rgba(200,200,200,0.08);
-}
-.heat-table td {
-  text-align: center;
-}
-.heat-meta {
-  min-width: 130px;
-  max-width: 170px;
-}
-.heat-meta-center {
-  min-width: 90px;
-  max-width: 110px;
-}
-.step-col {
-  width: 30px;
-  max-width: 30px;
-}
-.step-header {
-  height: 230px;
-  vertical-align: bottom;
-}
-.step-rot {
-  display: inline-block;
-  transform: rotate(-90deg);
-  transform-origin: bottom left;
-  white-space: normal;
-  text-align: left;
-}
-</style>
-<div class="heat-table-wrapper">
-<table class="heat-table">
-  <tr>
-"""
-
-                # Header cells – all vertical
-                html += (
-                    '<th class="heat-meta step-header">'
-                    f'<span class="step-rot">{escape("Date")}</span></th>'
-                )
-                html += (
-                    '<th class="heat-meta step-header">'
-                    f'<span class="step-rot">{escape("Attending")}</span></th>'
-                )
-                html += (
-                    '<th class="heat-meta-center step-header">'
-                    f'<span class="step-rot">{escape("Complexity")}</span></th>'
-                )
-                html += (
-                    '<th class="heat-meta-center step-header">'
-                    f'<span class="step-rot">{escape("O-Score")}</span></th>'
-                )
-
-                # Step headers
-                for step in ordered_steps:
-                    html += (
-                        '<th class="step-col step-header">'
-                        f'<span class="step-rot">{escape(step)}</span>'
-                        '</th>'
-                    )
-                html += "</tr>\n"
-
-                # Body rows
-                for _, row in display_df.iterrows():
-                    html += "<tr>"
-
-                    html += f'<td class="heat-meta">{escape(str(row["Date"]))}</td>'
-                    html += f'<td class="heat-meta">{escape(str(row["Attending"]))}</td>'
-
-                    c_bg = complexity_bg(row["Complexity"])
-                    o_bg = oscore_bg(row["O-Score"])
-
-                    html += f'<td class="heat-meta-center" style="background-color:{c_bg};"></td>'
-                    html += f'<td class="heat-meta-center" style="background-color:{o_bg};"></td>'
-
-                    for step in ordered_steps:
-                        val = row.get(step, "")
-                        bg = step_bg(val)
-                        html += f'<td class="step-col" style="background-color:{bg};"></td>'
-
-                    html += "</tr>\n"
-
-                html += "</table></div>"
-
-                st.markdown(html, unsafe_allow_html=True)
-
-                # --- Excel export (keeps full text) ---
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    pivot.to_excel(writer, index=False, sheet_name="Cumulative")
-                    ws = writer.sheets["Cumulative"]
-
-                    from openpyxl.styles import PatternFill, Font
-                    fill_map = {
-                        "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
-                        "Not Yet":  PatternFill(start_color="FF0000", fill_type="solid"),
-                        "Steer":    PatternFill(start_color="FFA500", fill_type="solid"),
-                        "Prompt":   PatternFill(start_color="FFD700", fill_type="solid"),
-                        "Back up":  PatternFill(start_color="90EE90", fill_type="solid"),
-                        "Auto":     PatternFill(start_color="008000", fill_type="solid"),
+                    # Step rating colors
+                    rating_colors = {
+                        "Not Done": "#D3D3D3",
+                        "Not Yet":  "#FF0000",
+                        "Steer":    "#FFA500",
+                        "Prompt":   "#FFD700",
+                        "Back up":  "#90EE90",
+                        "Auto":     "#008000",
                     }
 
-                    start_col = 6
-                    for row in ws.iter_rows(
-                        min_row=2, max_row=ws.max_row,
-                        min_col=start_col, max_col=5 + len(ordered_steps)
-                    ):
-                        for cell in row:
-                            if cell.value in fill_map:
-                                cell.fill = fill_map[cell.value]
-                                cell.font = Font(
-                                    color="FFFFFF" if cell.value in ["Not Yet", "Auto"] else "000000"
-                                )
+                    def step_bg(val):
+                        return f"background-color: {rating_colors.get(val, '')};"
 
-                excel_data = output.getvalue()
-                st.download_button(
-                    label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
-                    data=excel_data,
-                    file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    # Complexity colors
+                    complexity_colors = {
+                        "Straight Forward": "#C6EFCE",  # light green
+                        "Moderate":         "#FFEB9C",  # light yellow
+                        "Complex":          "#FFC7CE",  # light red
+                    }
+
+                    def complexity_bg(val):
+                        return f"background-color: {complexity_colors.get(val, '')};"
+
+                    # O-Score colors (1–5)
+                    oscore_palette = {
+                        1: "#FF0000",
+                        2: "#FFA500",
+                        3: "#FFD700",
+                        4: "#90EE90",
+                        5: "#008000",
+                    }
+
+                    def oscore_bg(val):
+                        try:
+                            num = int(str(val).split(" ")[0])
+                            return f"background-color: {oscore_palette.get(num, '')};"
+                        except Exception:
+                            return ""
+
+                    # --- Build Styler with classes so we can hide text in colored cells ---
+                    classes_df = pd.DataFrame("step-cell", index=display_df.index, columns=display_df.columns)
+                    # meta text columns (keep labels visible)
+                    for col in ["date", "attending_name"]:
+                        if col in classes_df.columns:
+                            classes_df[col] = "meta-cell"
+                    if "case_complexity" in classes_df.columns:
+                        classes_df["case_complexity"] = "complexity-cell"
+                    if "overall_performance" in classes_df.columns:
+                        classes_df["overall_performance"] = "oscore-cell"
+
+                    styler = display_df.style
+
+                    # Apply background colors
+                    styler = styler.applymap(step_bg, subset=ordered_steps)
+                    styler = styler.applymap(complexity_bg, subset=["case_complexity"])
+                    styler = styler.applymap(oscore_bg, subset=["overall_performance"])
+
+                    # Attach CSS classes
+                    styler = styler.set_td_classes(classes_df)
+
+                    # Remove row index
+                    styler = styler.hide(axis="index")
+
+                    # Give the table a stable class for our custom CSS
+                    styler = styler.set_table_attributes('class="cumulative-table"')
+
+                    # --- Render with custom CSS for layout ---
+                    custom_css = """
+                    <style>
+                    .cumulative-table {
+                        border-collapse: collapse;
+                        margin-top: 0.5rem;
+                        margin-bottom: 0.5rem;
+                        table-layout: fixed;
+                    }
+                    .cumulative-table th,
+                    .cumulative-table td {
+                        border: 1px solid #999;
+                        text-align: center;
+                        padding: 4px 2px;
+                    }
+                    /* Wider columns for meta info */
+                    .cumulative-table th:nth-child(1),
+                    .cumulative-table td:nth-child(1) {
+                        min-width: 110px;
+                        max-width: 130px;
+                        white-space: nowrap;
+                    }
+                    .cumulative-table th:nth-child(2),
+                    .cumulative-table td:nth-child(2) {
+                        min-width: 130px;
+                        max-width: 150px;
+                        white-space: nowrap;
+                    }
+                    .cumulative-table th:nth-child(3),
+                    .cumulative-table td:nth-child(3),
+                    .cumulative-table th:nth-child(4),
+                    .cumulative-table td:nth-child(4) {
+                        min-width: 60px;
+                        max-width: 70px;
+                        white-space: nowrap;
+                    }
+                    /* Step columns compact but readable */
+                    .cumulative-table th:nth-child(n+5),
+                    .cumulative-table td:nth-child(n+5) {
+                        min-width: 40px;
+                        max-width: 50px;
+                        word-wrap: break-word;
+                        white-space: normal;
+                    }
+                    /* Keep header text horizontal but allow wrapping */
+                    .cumulative-table th {
+                        font-size: 11px;
+                        line-height: 1.2;
+                    }
+                    /* Show text in meta cells */
+                    .cumulative-table td.meta-cell {
+                        font-size: 12px;
+                    }
+                    /* Hide text but keep color in complexity / O-score / step cells */
+                    .cumulative-table td.complexity-cell,
+                    .cumulative-table td.oscore-cell,
+                    .cumulative-table td.step-cell {
+                        font-size: 0;
+                    }
+                    </style>
+                    """
+
+                    st.markdown(custom_css + styler.to_html(), unsafe_allow_html=True)
+
+                    # --- Legends ---
+                    st.markdown("**Case Complexity Legend:**")
+                    st.markdown("""
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:12px;">
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#C6EFCE;border:1px solid #999;margin-right:4px;"></span>Straight Forward</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFEB9C;border:1px solid #999;margin-right:4px;"></span>Moderate</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFC7CE;border:1px solid #999;margin-right:4px;"></span>Complex</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    st.markdown("**O-Score Legend:**")
+                    st.markdown("""
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:12px;">
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FF0000;border:1px solid #999;margin-right:4px;"></span>1 - Not Yet</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFA500;border:1px solid #999;margin-right:4px;"></span>2 - Steer</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFD700;border:1px solid #999;margin-right:4px;"></span>3 - Prompt</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#90EE90;border:1px solid #999;margin-right:4px;"></span>4 - Backup</div>
+                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#008000;border:1px solid #999;margin-right:4px;"></span>5 - Auto</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # --- Excel export (keep full data, including case_id & text) ---
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                        # Use the full pivot including case_id for export
+                        export_cols = ["date", "attending_name", "case_id",
+                                       "case_complexity", "overall_performance"] + ordered_steps
+                        export_df = pivot[export_cols]
+                        export_df.to_excel(writer, index=False, sheet_name="Cumulative")
+                        ws = writer.sheets["Cumulative"]
+
+                        from openpyxl.styles import PatternFill, Font
+                        fill_map = {
+                            "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
+                            "Not Yet":  PatternFill(start_color="FF0000", fill_type="solid"),
+                            "Steer":    PatternFill(start_color="FFA500", fill_type="solid"),
+                            "Prompt":   PatternFill(start_color="FFD700", fill_type="solid"),
+                            "Back up":  PatternFill(start_color="90EE90", fill_type="solid"),
+                            "Auto":     PatternFill(start_color="008000", fill_type="solid"),
+                        }
+
+                        # Apply colors only to step columns (export keeps text)
+                        start_col = 6  # A=1 → date, attending, case_id, complexity, O-score = 5 cols
+                        for row in ws.iter_rows(
+                            min_row=2, max_row=ws.max_row,
+                            min_col=start_col, max_col=5 + len(ordered_steps)
+                        ):
+                            for cell in row:
+                                if cell.value in fill_map:
+                                    cell.fill = fill_map[cell.value]
+                                    cell.font = Font(color="FFFFFF") if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
+
+                    excel_data = output.getvalue()
+                    st.download_button(
+                        label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
+                        data=excel_data,
+                        file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
                 if st.button("⬅️ Back to Home"):
                     st.session_state["page"] = "home"
