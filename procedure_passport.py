@@ -788,8 +788,8 @@ elif st.session_state["page"] == "cumulative":
         scores_df = read_sheet_df(
             SHEET_SCORES,
             expected_cols=[
-                "case_id", "step_id", "rating", "rating_num",
-                "case_complexity", "overall_performance"
+                "case_id", "step_id", "rating", "rating_num", "case_complexity",
+                "overall_performance"
             ]
         )
         steps_df = read_sheet_df(
@@ -878,7 +878,6 @@ elif st.session_state["page"] == "cumulative":
                     aggfunc="first"
                 ).reset_index()
 
-                # Ensure we have all step columns
                 cols = ["date", "attending_name", "case_id",
                         "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
@@ -919,7 +918,6 @@ elif st.session_state["page"] == "cumulative":
 
                 def step_bg(val):
                     css = RATING_COLOR.get(val, "")
-                    # RATING_COLOR is 'background-color:#xxxxxx; color:...' – strip to only bg
                     if "background-color" in css:
                         return css.split(";")[0].split(":", 1)[1]
                     return ""
@@ -932,9 +930,8 @@ elif st.session_state["page"] == "cumulative":
 
                 # --- Build HTML table manually ---
                 st.markdown("### On-screen view (for screenshots)")
-                st.caption("Most recent cases at the top. Zoom out and screenshot this grid 📸")
+                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
 
-                # CSS
                 html = """
 <style>
 .heat-table-wrapper {
@@ -943,35 +940,33 @@ elif st.session_state["page"] == "cumulative":
 .heat-table {
   border-collapse: collapse;
   font-size: 11px;
+  table-layout: fixed;
 }
 .heat-table th, .heat-table td {
   border: 1px solid rgba(150,150,150,0.7);
-  padding: 4px;
+  padding: 2px;
 }
 .heat-table th {
   text-align: center;
-  background-color: rgba(200,200,200,0.1);
+  background-color: rgba(200,200,200,0.08);
 }
 .heat-table td {
   text-align: center;
 }
 .heat-meta {
-  min-width: 120px;
-  max-width: 180px;
-  white-space: nowrap;
-  text-align: left;
+  min-width: 130px;
+  max-width: 170px;
 }
 .heat-meta-center {
-  min-width: 80px;
-  max-width: 100px;
-  text-align: center;
+  min-width: 90px;
+  max-width: 110px;
 }
 .step-col {
-  width: 32px;
-  max-width: 32px;
+  width: 30px;
+  max-width: 30px;
 }
 .step-header {
-  height: 220px;           /* tall so full text fits when rotated */
+  height: 230px;
   vertical-align: bottom;
 }
 .step-rot {
@@ -985,18 +980,32 @@ elif st.session_state["page"] == "cumulative":
 <div class="heat-table-wrapper">
 <table class="heat-table">
   <tr>
-    <th class="heat-meta">Date</th>
-    <th class="heat-meta">Attending</th>
-    <th class="heat-meta-center">Complexity</th>
-    <th class="heat-meta-center">O-Score</th>
 """
+
+                # Header cells – all vertical
+                html += (
+                    '<th class="heat-meta step-header">'
+                    f'<span class="step-rot">{escape("Date")}</span></th>'
+                )
+                html += (
+                    '<th class="heat-meta step-header">'
+                    f'<span class="step-rot">{escape("Attending")}</span></th>'
+                )
+                html += (
+                    '<th class="heat-meta-center step-header">'
+                    f'<span class="step-rot">{escape("Complexity")}</span></th>'
+                )
+                html += (
+                    '<th class="heat-meta-center step-header">'
+                    f'<span class="step-rot">{escape("O-Score")}</span></th>'
+                )
 
                 # Step headers
                 for step in ordered_steps:
                     html += (
-                        f'<th class="step-col step-header">'
+                        '<th class="step-col step-header">'
                         f'<span class="step-rot">{escape(step)}</span>'
-                        f"</th>"
+                        '</th>'
                     )
                 html += "</tr>\n"
 
@@ -1024,7 +1033,7 @@ elif st.session_state["page"] == "cumulative":
 
                 st.markdown(html, unsafe_allow_html=True)
 
-                # --- Excel export (keep text there) ---
+                # --- Excel export (keeps full text) ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
                     pivot.to_excel(writer, index=False, sheet_name="Cumulative")
@@ -1040,7 +1049,7 @@ elif st.session_state["page"] == "cumulative":
                         "Auto":     PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    start_col = 6  # first step column in Excel (after metadata cols)
+                    start_col = 6
                     for row in ws.iter_rows(
                         min_row=2, max_row=ws.max_row,
                         min_col=start_col, max_col=5 + len(ordered_steps)
