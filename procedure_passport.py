@@ -900,36 +900,69 @@ elif st.session_state["page"] == "cumulative":
                     # We don't really need case_id on-screen for screenshots
                     screenshot_df = display_df.drop(columns=["case_id"], errors="ignore")
 
-                    # --- Color map for step cells (hide text, show color blocks) ---
-                    def step_color_map(val):
-                        base = ""
-                        if val == "Not Done":
-                            base = "background-color: lightgray;"
-                        elif val == "Not Yet":
-                            base = "background-color: red;"
-                        elif val == "Steer":
-                            base = "background-color: orange;"
-                        elif val == "Prompt":
-                            base = "background-color: gold;"
-                        elif val == "Back up":
-                            base = "background-color: lightgreen;"
-                        elif val == "Auto":
-                            base = "background-color: green;"
-                        # hide text, keep block
-                        if base:
-                            base += " color: transparent;"
-                        return base
+                # --- Color maps ---
+                def step_color_map(val):
+                    """Color-only blocks for step ratings (text hidden)."""
+                    base = ""
+                    if val == "Not Done":
+                        base = "background-color: lightgray;"
+                    elif val == "Not Yet":
+                        base = "background-color: red;"
+                    elif val == "Steer":
+                        base = "background-color: orange;"
+                    elif val == "Prompt":
+                        base = "background-color: gold;"
+                    elif val == "Back up":
+                        base = "background-color: lightgreen;"
+                    elif val == "Auto":
+                        base = "background-color: green;"
+                    # hide text for step cells so it looks like a heatmap
+                    if base:
+                        base += " color: transparent;"
+                    return base
 
-                    st.subheader("On-screen view (for screenshots)")
-                    st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+                def complexity_color_map(val):
+                    """Background color for case complexity (keep text)."""
+                    if val == "Straight Forward":
+                        return "background-color: lightgreen; color: black;"
+                    elif val == "Moderate":
+                        return "background-color: gold; color: black;"
+                    elif val == "Complex":
+                        return "background-color: salmon; color: black;"
+                    return ""
 
-                    styled = (
-                        screenshot_df.style
+                st.subheader("On-screen view (for screenshots)")
+                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+
+                # Wider, non-wrapping metadata columns; centered colored step blocks
+                styled = (
+                    screenshot_df.style
+                        # color the steps as blocks
                         .applymap(step_color_map, subset=ordered_steps)
-                        .set_properties(**{"text-align": "center"})
-                    )
+                        # color code the complexity column
+                        .applymap(complexity_color_map, subset=["Complexity"])
+                        # keep metadata readable, horizontal
+                        .set_properties(
+                            subset=["Date", "Attending", "Complexity", "O-Score"],
+                            **{
+                                "min-width": "140px",
+                                "white-space": "nowrap",
+                                "text-align": "left",
+                                "font-weight": "normal",
+                            },
+                        )
+                        # center step cells
+                        .set_properties(
+                            subset=ordered_steps,
+                            **{
+                                "text-align": "center",
+                                "min-width": "70px",
+                            },
+                        )
+                )
 
-                    st.table(styled)
+                # Use table (static) instead of dataframe to avoid horizontal scrolling
+                st.table(styled)
 
                     # --- Export to Excel with colors (full data, including case_id) ---
                     output = io.BytesIO()
