@@ -1,6 +1,7 @@
-streamlit
 pandas
-openpyxl
 gspread
 gspread_dataframe
 google-auth
+openpyxl
+matplotlib
+numpy
