@@ -803,7 +803,7 @@ elif st.session_state["page"] == "cumulative":
             expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
         )
 
-        # --- Make sure complexity / O-Score columns exist ---
+        # --- Ensure expected columns exist ---
         for col in ["case_complexity", "overall_performance"]:
             if col not in scores_df.columns:
                 scores_df[col] = pd.NA
@@ -818,7 +818,7 @@ elif st.session_state["page"] == "cumulative":
                 time.sleep(1)
                 st.rerun()
         else:
-            # --- Prepare smaller tables for merging ---
+            # --- Smaller tables for merging ---
             res_cases_small = res_cases[
                 ["case_id", "date", "procedure_id", "attending_id"]
             ].rename(columns={"procedure_id": "case_procedure_id"})
@@ -849,7 +849,7 @@ elif st.session_state["page"] == "cumulative":
                     time.sleep(1)
                     st.rerun()
             else:
-                # --- Procedure selection dropdown ---
+                # --- Procedure selection ---
                 proc_ids = merged["case_procedure_id"].dropna().unique()
                 selected_proc = st.selectbox(
                     "Select a procedure to view",
@@ -867,7 +867,7 @@ elif st.session_state["page"] == "cumulative":
                     .tolist()
                 )
 
-                # --- Pivot data for visualization (keep case_id but we'll hide it) ---
+                # --- Pivot for grid ---
                 pivot = proc_data.pivot_table(
                     index=["date", "attending_name", "case_id",
                            "case_complexity", "overall_performance"],
@@ -876,7 +876,7 @@ elif st.session_state["page"] == "cumulative":
                     aggfunc="first"
                 ).reset_index()
 
-                # --- Ensure consistent column order ---
+                # --- Consistent column order ---
                 cols = ["date", "attending_name", "case_id",
                         "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
@@ -884,7 +884,7 @@ elif st.session_state["page"] == "cumulative":
                         pivot[c] = pd.NA
                 pivot = pivot[cols]
 
-                # --- Prepare display dataframe ---
+                # --- Prepare display dataframe (drop case_id, rename) ---
                 display_df = pivot.drop(columns=["case_id"])
                 display_df = display_df.rename(columns={
                     "date": "Date",
@@ -893,20 +893,19 @@ elif st.session_state["page"] == "cumulative":
                     "overall_performance": "O-Score",
                 })
 
-                # Sort by Date descending (most recent at top)
+                # Sort by Date descending
                 try:
                     display_df["Date"] = pd.to_datetime(display_df["Date"])
                     display_df = display_df.sort_values("Date", ascending=False)
                     display_df["Date"] = display_df["Date"].dt.date.astype(str)
                 except Exception:
-                    # if conversion fails, leave order as-is
                     pass
 
                 display_df = display_df.reset_index(drop=True)
+                display_df.index.name = None  # cleaner before hiding
 
                 # --- Color maps ---
                 def step_color(val):
-                    # reuse your existing RATING_COLOR dict
                     return RATING_COLOR.get(val, "")
 
                 COMPLEXITY_COLOR = {
@@ -929,21 +928,36 @@ elif st.session_state["page"] == "cumulative":
                 def oscore_color(val):
                     return O_SCORE_COLOR.get(val, "")
 
-                # --- Build Styler with colors ---
+                # --- Build Styler ---
                 styled = display_df.style
 
-                # color step cells
-                styled = styled.applymap(step_color, subset=ordered_steps)
+                # hide index column (0,1,2,3)
+                styled = styled.hide(axis="index")
 
-                # color complexity & O-Score and hide their text
+                # step colors + hide text
+                styled = styled.applymap(step_color, subset=ordered_steps)
+                styled = styled.set_properties(
+                    subset=ordered_steps,
+                    **{
+                        "color": "transparent",
+                        "font-size": "0px",
+                        "text-shadow": "none",
+                    },
+                )
+
+                # complexity + O-score colors + hide text
                 styled = styled.applymap(complexity_color, subset=["Complexity"])
                 styled = styled.applymap(oscore_color, subset=["O-Score"])
                 styled = styled.set_properties(
                     subset=["Complexity", "O-Score"],
-                    **{"color": "transparent"}  # text invisible, color remains
+                    **{
+                        "color": "transparent",
+                        "font-size": "0px",
+                        "text-shadow": "none",
+                    },
                 )
 
-                # --- Vertical, skinny step headers like your Excel example ---
+                # --- Vertical step headers, taller so full text shows ---
                 header_styles = []
                 for idx, col_name in enumerate(display_df.columns):
                     if col_name in ordered_steps:
@@ -952,8 +966,8 @@ elif st.session_state["page"] == "cumulative":
                             "props": [
                                 ("transform", "rotate(-90deg)"),
                                 ("transform-origin", "bottom left"),
-                                ("white-space", "nowrap"),
-                                ("height", "170px"),
+                                ("white-space", "normal"),
+                                ("height", "260px"),      # taller so full label fits
                                 ("vertical-align", "bottom"),
                                 ("text-align", "left"),
                                 ("font-size", "11px"),
@@ -964,7 +978,7 @@ elif st.session_state["page"] == "cumulative":
 
                 styled = styled.set_table_styles(header_styles, overwrite=False)
 
-                # Narrow step columns, normal meta columns
+                # Column widths: skinny steps, wider Date/Attending
                 styled = styled.set_properties(
                     subset=ordered_steps,
                     **{
@@ -988,10 +1002,10 @@ elif st.session_state["page"] == "cumulative":
                 st.markdown("### On-screen view (for screenshots)")
                 st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
 
-                # Static table (no scroll bars) for clean screenshots
+                # Use st.table (static) for clean screenshots
                 st.table(styled)
 
-                # --- Excel export still uses the same pivot data (with text) ---
+                # --- Excel export (with text preserved) ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
                     pivot.to_excel(writer, index=False, sheet_name="Cumulative")
