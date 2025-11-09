@@ -7,6 +7,7 @@ import io
 import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
+from streamlit.components.v1 import html
 
 st.set_page_config(
     page_title="Procedure Passport",
@@ -880,7 +881,6 @@ elif st.session_state["page"] == "cumulative":
 
                     # --- Build display dataframe (no case_id column on screen) ---
                     base_cols = ["date", "attending_name", "case_complexity", "overall_performance"]
-                    # Ensure all step columns are present
                     for c in ordered_steps:
                         if c not in pivot.columns:
                             pivot[c] = pd.NA
@@ -888,9 +888,10 @@ elif st.session_state["page"] == "cumulative":
                     display_cols = base_cols + ordered_steps
                     display_df = pivot[display_cols].copy()
 
-                    # --- Color mapping functions ---
+                    # =======================
+                    #  COLOR MAPS & STYLER
+                    # =======================
 
-                    # Step rating colors
                     rating_colors = {
                         "Not Done": "#D3D3D3",
                         "Not Yet":  "#FF0000",
@@ -903,17 +904,15 @@ elif st.session_state["page"] == "cumulative":
                     def step_bg(val):
                         return f"background-color: {rating_colors.get(val, '')};"
 
-                    # Complexity colors
                     complexity_colors = {
-                        "Straight Forward": "#C6EFCE",  # light green
-                        "Moderate":         "#FFEB9C",  # light yellow
-                        "Complex":          "#FFC7CE",  # light red
+                        "Straight Forward": "#C6EFCE",
+                        "Moderate":         "#FFEB9C",
+                        "Complex":          "#FFC7CE",
                     }
 
                     def complexity_bg(val):
                         return f"background-color: {complexity_colors.get(val, '')};"
 
-                    # O-Score colors (1–5)
                     oscore_palette = {
                         1: "#FF0000",
                         2: "#FFA500",
@@ -929,96 +928,78 @@ elif st.session_state["page"] == "cumulative":
                         except Exception:
                             return ""
 
-                    # --- Build Styler with classes so we can hide text in colored cells ---
-                    classes_df = pd.DataFrame("step-cell", index=display_df.index, columns=display_df.columns)
-                    # meta text columns (keep labels visible)
-                    for col in ["date", "attending_name"]:
-                        if col in classes_df.columns:
-                            classes_df[col] = "meta-cell"
-                    if "case_complexity" in classes_df.columns:
-                        classes_df["case_complexity"] = "complexity-cell"
-                    if "overall_performance" in classes_df.columns:
-                        classes_df["overall_performance"] = "oscore-cell"
-
                     styler = display_df.style
 
-                    # Apply background colors
-                    styler = styler.applymap(step_bg, subset=ordered_steps)
+                    # color-only complexity & o-score
                     styler = styler.applymap(complexity_bg, subset=["case_complexity"])
                     styler = styler.applymap(oscore_bg, subset=["overall_performance"])
+                    styler = styler.applymap(step_bg, subset=ordered_steps)
 
-                    # Attach CSS classes
-                    styler = styler.set_td_classes(classes_df)
+                    # hide text in colored cells (keep date & attending visible)
+                    styler = styler.format("", subset=["case_complexity", "overall_performance"] + ordered_steps)
 
-                    # Remove row index
+                    # hide row index
                     styler = styler.hide(axis="index")
 
-                    # Give the table a stable class for our custom CSS
-                    styler = styler.set_table_attributes('class="cumulative-table"')
+                    # Table-wide HTML attributes so we can tweak appearance
+                    styler = styler.set_table_attributes('class="cum-table"')
 
-                    # --- Render with custom CSS for layout ---
+                    # --- Minimal CSS for compact, readable layout ---
                     custom_css = """
                     <style>
-                    .cumulative-table {
+                    .cum-table {
                         border-collapse: collapse;
-                        margin-top: 0.5rem;
-                        margin-bottom: 0.5rem;
+                        width: 100%;
                         table-layout: fixed;
                     }
-                    .cumulative-table th,
-                    .cumulative-table td {
-                        border: 1px solid #999;
-                        text-align: center;
+                    .cum-table th,
+                    .cum-table td {
+                        border: 1px solid #888;
                         padding: 4px 2px;
+                        text-align: center;
                     }
-                    /* Wider columns for meta info */
-                    .cumulative-table th:nth-child(1),
-                    .cumulative-table td:nth-child(1) {
+                    /* Date + Attending wider */
+                    .cum-table th:nth-child(1),
+                    .cum-table td:nth-child(1) {
                         min-width: 110px;
                         max-width: 130px;
                         white-space: nowrap;
                     }
-                    .cumulative-table th:nth-child(2),
-                    .cumulative-table td:nth-child(2) {
+                    .cum-table th:nth-child(2),
+                    .cum-table td:nth-child(2) {
                         min-width: 130px;
                         max-width: 150px;
                         white-space: nowrap;
                     }
-                    .cumulative-table th:nth-child(3),
-                    .cumulative-table td:nth-child(3),
-                    .cumulative-table th:nth-child(4),
-                    .cumulative-table td:nth-child(4) {
+                    /* Complexity & O-Score medium */
+                    .cum-table th:nth-child(3),
+                    .cum-table td:nth-child(3),
+                    .cum-table th:nth-child(4),
+                    .cum-table td:nth-child(4) {
                         min-width: 60px;
                         max-width: 70px;
                         white-space: nowrap;
                     }
-                    /* Step columns compact but readable */
-                    .cumulative-table th:nth-child(n+5),
-                    .cumulative-table td:nth-child(n+5) {
+                    /* Step columns compact with wrapping */
+                    .cum-table th:nth-child(n+5),
+                    .cum-table td:nth-child(n+5) {
                         min-width: 40px;
-                        max-width: 50px;
-                        word-wrap: break-word;
+                        max-width: 55px;
                         white-space: normal;
+                        word-wrap: break-word;
                     }
-                    /* Keep header text horizontal but allow wrapping */
-                    .cumulative-table th {
+                    .cum-table th {
                         font-size: 11px;
                         line-height: 1.2;
                     }
-                    /* Show text in meta cells */
-                    .cumulative-table td.meta-cell {
+                    .cum-table td {
                         font-size: 12px;
-                    }
-                    /* Hide text but keep color in complexity / O-score / step cells */
-                    .cumulative-table td.complexity-cell,
-                    .cumulative-table td.oscore-cell,
-                    .cumulative-table td.step-cell {
-                        font-size: 0;
                     }
                     </style>
                     """
 
-                    st.markdown(custom_css + styler.to_html(), unsafe_allow_html=True)
+                    # Render via HTML component so <style> is respected
+                    html(custom_css + styler.to_html(), height=600, scrolling=True)
 
                     # --- Legends ---
                     st.markdown("**Case Complexity Legend:**")
@@ -1041,10 +1022,9 @@ elif st.session_state["page"] == "cumulative":
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # --- Excel export (keep full data, including case_id & text) ---
+                    # --- Excel export (full text + colors) ---
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                        # Use the full pivot including case_id for export
                         export_cols = ["date", "attending_name", "case_id",
                                        "case_complexity", "overall_performance"] + ordered_steps
                         export_df = pivot[export_cols]
@@ -1061,8 +1041,7 @@ elif st.session_state["page"] == "cumulative":
                             "Auto":     PatternFill(start_color="008000", fill_type="solid"),
                         }
 
-                        # Apply colors only to step columns (export keeps text)
-                        start_col = 6  # A=1 → date, attending, case_id, complexity, O-score = 5 cols
+                        start_col = 6  # first 5 are meta columns
                         for row in ws.iter_rows(
                             min_row=2, max_row=ws.max_row,
                             min_col=start_col, max_col=5 + len(ordered_steps)
