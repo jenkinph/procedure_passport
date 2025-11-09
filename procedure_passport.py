@@ -884,29 +884,52 @@ elif st.session_state["page"] == "cumulative":
                             pivot[c] = pd.NA
                     pivot = pivot[cols]
 
-                    # --- Color map for visualization ---
-                    def color_map(val):
-                        if val == "Not Done":
-                            return "background-color: lightgray; color: black"
-                        elif val == "Not Yet":
-                            return "background-color: red; color: white"
-                        elif val == "Steer":
-                            return "background-color: orange; color: black"
-                        elif val == "Prompt":
-                            return "background-color: gold; color: black"
-                        elif val == "Back up":
-                            return "background-color: lightgreen; color: black"
-                        elif val == "Auto":
-                            return "background-color: green; color: white"
-                        return ""
+                    # --- Sort by date (most recent first) ---
+                    # keep original string for display, but sort using datetime
+                    sort_dates = pd.to_datetime(pivot["date"], errors="coerce")
+                    pivot = pivot.loc[sort_dates.sort_values(ascending=False).index]
 
-                    # 📸 Screenshot-friendly view (no horizontal scroll)
-                    screenshot_df = pivot.drop(columns=["case_id"], errors="ignore")
+                    # --- Nice column names for display ---
+                    display_df = pivot.rename(columns={
+                        "date": "Date",
+                        "attending_name": "Attending",
+                        "case_complexity": "Complexity",
+                        "overall_performance": "O-Score",
+                    })
+
+                    # We don't really need case_id on-screen for screenshots
+                    screenshot_df = display_df.drop(columns=["case_id"], errors="ignore")
+
+                    # --- Color map for step cells (hide text, show color blocks) ---
+                    def step_color_map(val):
+                        base = ""
+                        if val == "Not Done":
+                            base = "background-color: lightgray;"
+                        elif val == "Not Yet":
+                            base = "background-color: red;"
+                        elif val == "Steer":
+                            base = "background-color: orange;"
+                        elif val == "Prompt":
+                            base = "background-color: gold;"
+                        elif val == "Back up":
+                            base = "background-color: lightgreen;"
+                        elif val == "Auto":
+                            base = "background-color: green;"
+                        # hide text, keep block
+                        if base:
+                            base += " color: transparent;"
+                        return base
 
                     st.subheader("On-screen view (for screenshots)")
-                    st.table(
-                        screenshot_df.style.applymap(color_map, subset=ordered_steps)
+                    st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+
+                    styled = (
+                        screenshot_df.style
+                        .applymap(step_color_map, subset=ordered_steps)
+                        .set_properties(**{"text-align": "center"})
                     )
+
+                    st.table(styled)
 
                     # --- Export to Excel with colors (full data, including case_id) ---
                     output = io.BytesIO()
@@ -925,7 +948,7 @@ elif st.session_state["page"] == "cumulative":
                         }
 
                         # Apply colors only to step cells
-                        start_col = 6  # A=1 → steps start after 5 metadata cols
+                        start_col = 6  # A=1 → first 5 columns are metadata
                         for row in ws.iter_rows(
                             min_row=2,
                             max_row=ws.max_row,
