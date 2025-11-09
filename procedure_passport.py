@@ -550,6 +550,9 @@ elif st.session_state["page"] == "home":
     if st.button("📊 View My Cumulative Dashboard"):
         go_next("cumulative")
 
+    if st.button("💬 View My Comments Dashboard"):
+        go_next("comments")
+
     if st.button("🚪 Logout"):
         st.session_state["resident"] = None
         st.session_state["resident_name"] = ""
@@ -669,6 +672,85 @@ elif st.session_state["page"] == "dashboard":
 
     if st.button("View My Cumulative Dashboard →"):
         go_next("cumulative")
+
+# -------------------
+# PAGE: COMMENTS DASHBOARD
+# -------------------
+elif st.session_state["page"] == "comments":
+    st.title("💬 Comments Dashboard")
+
+    resident = st.session_state.get("resident")
+
+    if not resident:
+        st.error("⚠️ No resident logged in. Please log in first.")
+        if st.button("⬅️ Back to Home"):
+            st.session_state["page"] = "home"
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
+    else:
+        # --- Load relevant sheets ---
+        cases_df = read_sheet_df(
+            SHEET_CASES,
+            expected_cols=[
+                "case_id", "resident_email", "date", "specialty_id", "procedure_id",
+                "attending_id", "notes", "case_complexity", "overall_performance"
+            ]
+        )
+        procs_df = read_sheet_df(
+            SHEET_PROCEDURES,
+            expected_cols=["procedure_id", "procedure_name", "specialty_id"]
+        )
+        atnds_df = read_sheet_df(
+            SHEET_ATTENDINGS,
+            expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
+        )
+
+        # --- Filter to this resident ---
+        res_cases = cases_df[cases_df["resident_email"] == resident]
+        if res_cases.empty:
+            st.info("No comments recorded yet.")
+            if st.button("⬅️ Back to Home"):
+                go_next("home")
+        else:
+            # --- Merge in human-readable labels ---
+            merged = (
+                res_cases.merge(procs_df, on="procedure_id", how="left")
+                         .merge(atnds_df, on="attending_id", how="left")
+            )
+
+            # --- Clean up columns ---
+            merged = merged.rename(columns={
+                "date": "Date",
+                "procedure_name": "Procedure",
+                "attending_name": "Attending",
+                "case_complexity": "Case Complexity",
+                "overall_performance": "Overall Performance",
+                "notes": "Comments"
+            })
+
+            merged = merged[[
+                "Date", "Procedure", "Attending",
+                "Case Complexity", "Overall Performance", "Comments"
+            ]].sort_values("Date", ascending=False)
+
+            st.dataframe(merged, use_container_width=True)
+
+            # --- Excel Export ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                merged.to_excel(writer, index=False, sheet_name="Comments")
+
+            excel_data = output.getvalue()
+            st.download_button(
+                label="📥 Download Comments as Excel",
+                data=excel_data,
+                file_name=f"{resident}_comments_dashboard.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            if st.button("⬅️ Back to Home"):
+                go_next("home")
 
 # -------------------
 # PAGE: Cumulative Dashboard (Google Sheets only)
