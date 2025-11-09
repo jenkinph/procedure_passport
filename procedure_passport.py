@@ -761,6 +761,8 @@ elif st.session_state["page"] == "comments":
 # PAGE: Cumulative Dashboard (screenshot-friendly)
 # -------------------
 elif st.session_state["page"] == "cumulative":
+    from html import escape  # for safe HTML labels
+
     st.title("📊 Cumulative Dashboard")
 
     resident = st.session_state.get("resident")
@@ -818,7 +820,7 @@ elif st.session_state["page"] == "cumulative":
                 time.sleep(1)
                 st.rerun()
         else:
-            # --- Smaller tables for merging ---
+            # --- Prepare smaller tables for merging ---
             res_cases_small = res_cases[
                 ["case_id", "date", "procedure_id", "attending_id"]
             ].rename(columns={"procedure_id": "case_procedure_id"})
@@ -849,7 +851,7 @@ elif st.session_state["page"] == "cumulative":
                     time.sleep(1)
                     st.rerun()
             else:
-                # --- Procedure selection ---
+                # --- Choose procedure ---
                 proc_ids = merged["case_procedure_id"].dropna().unique()
                 selected_proc = st.selectbox(
                     "Select a procedure to view",
@@ -857,17 +859,17 @@ elif st.session_state["page"] == "cumulative":
                     format_func=lambda x: procs_map.get(x, x)
                 )
 
-                # --- Filter to selected procedure ---
+                # --- Filter to that procedure ---
                 proc_data = merged[merged["case_procedure_id"] == selected_proc]
 
-                # --- Order steps correctly ---
+                # --- Ordered steps for that procedure ---
                 ordered_steps = (
                     steps_df[steps_df["procedure_id"] == selected_proc]
                     .sort_values("step_order")["step_name"]
                     .tolist()
                 )
 
-                # --- Pivot for grid ---
+                # --- Pivot for export & helper df ---
                 pivot = proc_data.pivot_table(
                     index=["date", "attending_name", "case_id",
                            "case_complexity", "overall_performance"],
@@ -876,7 +878,7 @@ elif st.session_state["page"] == "cumulative":
                     aggfunc="first"
                 ).reset_index()
 
-                # --- Consistent column order ---
+                # Ensure we have all step columns
                 cols = ["date", "attending_name", "case_id",
                         "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
@@ -884,16 +886,15 @@ elif st.session_state["page"] == "cumulative":
                         pivot[c] = pd.NA
                 pivot = pivot[cols]
 
-                # --- Prepare display dataframe (drop case_id, rename) ---
-                display_df = pivot.drop(columns=["case_id"])
-                display_df = display_df.rename(columns={
+                # --- Display dataframe (no case_id, nice names) ---
+                display_df = pivot.drop(columns=["case_id"]).rename(columns={
                     "date": "Date",
                     "attending_name": "Attending",
                     "case_complexity": "Complexity",
                     "overall_performance": "O-Score",
                 })
 
-                # Sort by Date descending
+                # Sort newest first
                 try:
                     display_df["Date"] = pd.to_datetime(display_df["Date"])
                     display_df = display_df.sort_values("Date", ascending=False)
@@ -901,111 +902,129 @@ elif st.session_state["page"] == "cumulative":
                 except Exception:
                     pass
 
-                display_df = display_df.reset_index(drop=True)
-                display_df.index.name = None  # cleaner before hiding
-
-                # --- Color maps ---
-                def step_color(val):
-                    return RATING_COLOR.get(val, "")
-
+                # --- Color maps for cells (no text inside) ---
                 COMPLEXITY_COLOR = {
-                    "Straight Forward": "background-color:#90EE90;",
-                    "Moderate":         "background-color:#FFD580;",
-                    "Complex":          "background-color:#FF7F7F;",
+                    "Straight Forward": "#90EE90",  # light green
+                    "Moderate":         "#FFD580",  # light orange
+                    "Complex":          "#FF7F7F",  # light red
                 }
-
-                def complexity_color(val):
-                    return COMPLEXITY_COLOR.get(val, "")
 
                 O_SCORE_COLOR = {
-                    "1 - Not Yet":  "background-color:#ff4d4d;",
-                    "2 - Steer":    "background-color:#ff944d;",
-                    "3 - Prompt":   "background-color:#ffd633;",
-                    "4 - Backup":   "background-color:#99e699;",
-                    "5 - Auto":     "background-color:#33cc33;",
+                    "1 - Not Yet":  "#ff4d4d",
+                    "2 - Steer":    "#ff944d",
+                    "3 - Prompt":   "#ffd633",
+                    "4 - Backup":   "#99e699",
+                    "5 - Auto":     "#33cc33",
                 }
 
-                def oscore_color(val):
+                def step_bg(val):
+                    css = RATING_COLOR.get(val, "")
+                    # RATING_COLOR is 'background-color:#xxxxxx; color:...' – strip to only bg
+                    if "background-color" in css:
+                        return css.split(";")[0].split(":", 1)[1]
+                    return ""
+
+                def complexity_bg(val):
+                    return COMPLEXITY_COLOR.get(val, "")
+
+                def oscore_bg(val):
                     return O_SCORE_COLOR.get(val, "")
 
-                # --- Build Styler ---
-                styled = display_df.style
-
-                # hide index column (0,1,2,3)
-                styled = styled.hide(axis="index")
-
-                # step colors + hide text
-                styled = styled.applymap(step_color, subset=ordered_steps)
-                styled = styled.set_properties(
-                    subset=ordered_steps,
-                    **{
-                        "color": "transparent",
-                        "font-size": "0px",
-                        "text-shadow": "none",
-                    },
-                )
-
-                # complexity + O-score colors + hide text
-                styled = styled.applymap(complexity_color, subset=["Complexity"])
-                styled = styled.applymap(oscore_color, subset=["O-Score"])
-                styled = styled.set_properties(
-                    subset=["Complexity", "O-Score"],
-                    **{
-                        "color": "transparent",
-                        "font-size": "0px",
-                        "text-shadow": "none",
-                    },
-                )
-
-                # --- Vertical step headers, taller so full text shows ---
-                header_styles = []
-                for idx, col_name in enumerate(display_df.columns):
-                    if col_name in ordered_steps:
-                        header_styles.append({
-                            "selector": f"th.col_heading.level0.col{idx}",
-                            "props": [
-                                ("transform", "rotate(-90deg)"),
-                                ("transform-origin", "bottom left"),
-                                ("white-space", "normal"),
-                                ("height", "260px"),      # taller so full label fits
-                                ("vertical-align", "bottom"),
-                                ("text-align", "left"),
-                                ("font-size", "11px"),
-                                ("width", "40px"),
-                                ("max-width", "40px"),
-                            ],
-                        })
-
-                styled = styled.set_table_styles(header_styles, overwrite=False)
-
-                # Column widths: skinny steps, wider Date/Attending
-                styled = styled.set_properties(
-                    subset=ordered_steps,
-                    **{
-                        "min-width": "35px",
-                        "max-width": "40px",
-                        "width": "40px",
-                        "text-align": "center",
-                        "padding": "2px",
-                    },
-                ).set_properties(
-                    subset=["Date", "Attending"],
-                    **{
-                        "min-width": "140px",
-                        "max-width": "180px",
-                        "white-space": "nowrap",
-                        "text-align": "left",
-                        "padding": "4px",
-                    },
-                )
-
+                # --- Build HTML table manually ---
                 st.markdown("### On-screen view (for screenshots)")
-                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+                st.caption("Most recent cases at the top. Zoom out and screenshot this grid 📸")
 
-                # Use st.table (static) for clean screenshots
-                st.table(styled)
+                # CSS
+                html = """
+<style>
+.heat-table-wrapper {
+  overflow-x: auto;
+}
+.heat-table {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.heat-table th, .heat-table td {
+  border: 1px solid rgba(150,150,150,0.7);
+  padding: 4px;
+}
+.heat-table th {
+  text-align: center;
+  background-color: rgba(200,200,200,0.1);
+}
+.heat-table td {
+  text-align: center;
+}
+.heat-meta {
+  min-width: 120px;
+  max-width: 180px;
+  white-space: nowrap;
+  text-align: left;
+}
+.heat-meta-center {
+  min-width: 80px;
+  max-width: 100px;
+  text-align: center;
+}
+.step-col {
+  width: 32px;
+  max-width: 32px;
+}
+.step-header {
+  height: 220px;           /* tall so full text fits when rotated */
+  vertical-align: bottom;
+}
+.step-rot {
+  display: inline-block;
+  transform: rotate(-90deg);
+  transform-origin: bottom left;
+  white-space: normal;
+  text-align: left;
+}
+</style>
+<div class="heat-table-wrapper">
+<table class="heat-table">
+  <tr>
+    <th class="heat-meta">Date</th>
+    <th class="heat-meta">Attending</th>
+    <th class="heat-meta-center">Complexity</th>
+    <th class="heat-meta-center">O-Score</th>
+"""
 
-                # --- Excel export (with text preserved) ---
+                # Step headers
+                for step in ordered_steps:
+                    html += (
+                        f'<th class="step-col step-header">'
+                        f'<span class="step-rot">{escape(step)}</span>'
+                        f"</th>"
+                    )
+                html += "</tr>\n"
+
+                # Body rows
+                for _, row in display_df.iterrows():
+                    html += "<tr>"
+
+                    html += f'<td class="heat-meta">{escape(str(row["Date"]))}</td>'
+                    html += f'<td class="heat-meta">{escape(str(row["Attending"]))}</td>'
+
+                    c_bg = complexity_bg(row["Complexity"])
+                    o_bg = oscore_bg(row["O-Score"])
+
+                    html += f'<td class="heat-meta-center" style="background-color:{c_bg};"></td>'
+                    html += f'<td class="heat-meta-center" style="background-color:{o_bg};"></td>'
+
+                    for step in ordered_steps:
+                        val = row.get(step, "")
+                        bg = step_bg(val)
+                        html += f'<td class="step-col" style="background-color:{bg};"></td>'
+
+                    html += "</tr>\n"
+
+                html += "</table></div>"
+
+                st.markdown(html, unsafe_allow_html=True)
+
+                # --- Excel export (keep text there) ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
                     pivot.to_excel(writer, index=False, sheet_name="Cumulative")
@@ -1021,7 +1040,7 @@ elif st.session_state["page"] == "cumulative":
                         "Auto":     PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    start_col = 6  # first step column in Excel (after meta cols)
+                    start_col = 6  # first step column in Excel (after metadata cols)
                     for row in ws.iter_rows(
                         min_row=2, max_row=ws.max_row,
                         min_col=start_col, max_col=5 + len(ordered_steps)
