@@ -787,7 +787,8 @@ elif st.session_state["page"] == "cumulative":
         scores_df = read_sheet_df(
             SHEET_SCORES,
             expected_cols=[
-                "case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"
+                "case_id", "step_id", "rating", "rating_num",
+                "case_complexity", "overall_performance"
             ]
         )
         steps_df = read_sheet_df(
@@ -803,7 +804,7 @@ elif st.session_state["page"] == "cumulative":
             expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
         )
 
-        # --- Ensure expected columns exist ---
+        # --- Ensure expected columns exist (back-compat) ---
         for col in ["case_complexity", "overall_performance"]:
             if col not in scores_df.columns:
                 scores_df[col] = pd.NA
@@ -867,197 +868,294 @@ elif st.session_state["page"] == "cumulative":
                     .tolist()
                 )
 
-                if not ordered_steps:
-                    st.warning("No steps defined for this procedure yet.")
-                else:
-                    # --- Pivot data for visualization ---
-                    pivot = proc_data.pivot_table(
-                        index=["date", "attending_name", "case_id",
-                               "case_complexity", "overall_performance"],
-                        columns="step_name",
-                        values="rating",
-                        aggfunc="first"
-                    ).reset_index()
+                # --- Pivot data for visualization / export ---
+                pivot = proc_data.pivot_table(
+                    index=["date", "attending_name", "case_id",
+                           "case_complexity", "overall_performance"],
+                    columns="step_name",
+                    values="rating",
+                    aggfunc="first"
+                ).reset_index()
 
-                    # --- Build display dataframe (no case_id column on screen) ---
-                    base_cols = ["date", "attending_name", "case_complexity", "overall_performance"]
-                    for c in ordered_steps:
-                        if c not in pivot.columns:
-                            pivot[c] = pd.NA
+                # Ensure all steps present as columns
+                for step in ordered_steps:
+                    if step not in pivot.columns:
+                        pivot[step] = pd.NA
 
-                    display_cols = base_cols + ordered_steps
-                    display_df = pivot[display_cols].copy()
+                # Reorder columns
+                pivot = pivot[
+                    ["date", "attending_name", "case_id",
+                     "case_complexity", "overall_performance"] + ordered_steps
+                ]
 
-                    # =======================
-                    #  COLOR MAPS & STYLER
-                    # =======================
+                # -------------------------------------------------
+                # Nicely formatted, screenshot-friendly heatmap
+                # -------------------------------------------------
+                st.markdown(
+                    "### On-screen view (for screenshots)\n"
+                    "Most recent cases are at the top. Zoom out and screenshot this grid 📸"
+                )
 
-                    rating_colors = {
-                        "Not Done": "#D3D3D3",
-                        "Not Yet":  "#FF0000",
-                        "Steer":    "#FFA500",
-                        "Prompt":   "#FFD700",
-                        "Back up":  "#90EE90",
-                        "Auto":     "#008000",
+                # Sort with most recent first
+                screenshot_df = pivot.sort_values("date", ascending=False).copy()
+
+                # Drop case_id from this view (still used in Excel)
+                screenshot_df = screenshot_df.drop(columns=["case_id"])
+
+                # Color maps
+                step_color_map = {
+                    "Not Done":  "#D3D3D3",
+                    "Not Yet":   "#FF4D4D",
+                    "Steer":     "#FF944D",
+                    "Prompt":    "#FFD633",
+                    "Back up":   "#99E699",
+                    "Auto":      "#33CC33",
+                }
+
+                complexity_color_map = {
+                    "Straight Forward": "#C8E6C9",  # light green
+                    "Moderate":         "#FFF59D",  # light yellow
+                    "Complex":          "#FFAB91",  # light red/orange
+                }
+
+                o_score_color_map = {
+                    "1": "#FF4D4D",  # Not Yet
+                    "2": "#FF944D",  # Steer
+                    "3": "#FFD633",  # Prompt
+                    "4": "#99E699",  # Backup
+                    "5": "#33CC33",  # Auto
+                }
+
+                def color_steps(val):
+                    if pd.isna(val):
+                        return ""
+                    return f"background-color: {step_color_map.get(val, '')}"
+
+                def color_complexity(val):
+                    if pd.isna(val):
+                        return ""
+                    return f"background-color: {complexity_color_map.get(val, '')}"
+
+                def color_o_score(val):
+                    if not isinstance(val, str):
+                        return ""
+                    key = val.split("-")[0].strip()  # "3 - Prompt" → "3"
+                    return f"background-color: {o_score_color_map.get(key, '')}"
+
+                # Build styler
+                styled = screenshot_df.style
+
+                # Apply colors to step cells
+                styled = styled.applymap(
+                    color_steps,
+                    subset=ordered_steps
+                )
+
+                # Apply colors to complexity / O-score columns
+                styled = styled.applymap(
+                    color_complexity,
+                    subset=["case_complexity"]
+                )
+                styled = styled.applymap(
+                    color_o_score,
+                    subset=["overall_performance"]
+                )
+
+                # Hide the index
+                styled = styled.hide(axis="index")
+
+                # Make metadata columns a bit wider; step columns narrow
+                styled = styled.set_properties(
+                    subset=["date", "attending_name"],
+                    **{"min-width": "120px", "white-space": "nowrap"}
+                ).set_properties(
+                    subset=["case_complexity", "overall_performance"],
+                    **{"min-width": "90px", "text-align": "center"}
+                ).set_properties(
+                    subset=ordered_steps,
+                    **{
+                        "min-width": "36px",
+                        "max-width": "36px",
+                        "text-align": "center"
                     }
+                )
 
-                    def step_bg(val):
-                        return f"background-color: {rating_colors.get(val, '')};"
+                # Table-level styles (theme-aware via CSS vars)
+                table_styles = [
+                    {
+                        "selector": "table",
+                        "props": [
+                            ("border-collapse", "collapse"),
+                            ("margin", "0 auto"),
+                        ],
+                    },
+                    {
+                        "selector": "th, td",
+                        "props": [
+                            ("border", "1px solid var(--secondary-background-color)"),
+                            ("padding", "4px"),
+                            ("font-size", "0.8rem"),
+                        ],
+                    },
+                    {
+                        "selector": "th.col_heading",
+                        "props": [
+                            ("text-align", "center"),
+                            ("vertical-align", "bottom"),
+                            ("font-weight", "600"),
+                        ],
+                    },
+                ]
 
-                    complexity_colors = {
-                        "Straight Forward": "#C6EFCE",
-                        "Moderate":         "#FFEB9C",
-                        "Complex":          "#FFC7CE",
+                # Make step headers vertical & narrow
+                # We target their column indices in the styler
+                all_cols = list(screenshot_df.columns)
+                for idx, col_name in enumerate(all_cols):
+                    if col_name in ordered_steps:
+                        table_styles.append(
+                            {
+                                "selector": f"th.col_heading.level0.col{idx}",
+                                "props": [
+                                    ("writing-mode", "vertical-rl"),
+                                    ("text-orientation", "mixed"),
+                                    ("white-space", "nowrap"),
+                                    ("font-size", "0.75rem"),
+                                    ("padding", "4px 2px"),
+                                ],
+                            }
+                        )
+
+                # Hide text for complexity / O-score if you want color-only:
+                # (comment this block out if you decide you *do* want text)
+                comp_idx = all_cols.index("case_complexity")
+                o_idx = all_cols.index("overall_performance")
+                table_styles.append(
+                    {
+                        "selector": f"td.col{comp_idx}",
+                        "props": [("color", "transparent")],
                     }
-
-                    def complexity_bg(val):
-                        return f"background-color: {complexity_colors.get(val, '')};"
-
-                    oscore_palette = {
-                        1: "#FF0000",
-                        2: "#FFA500",
-                        3: "#FFD700",
-                        4: "#90EE90",
-                        5: "#008000",
+                )
+                table_styles.append(
+                    {
+                        "selector": f"td.col{o_idx}",
+                        "props": [("color", "transparent")],
                     }
+                )
 
-                    def oscore_bg(val):
-                        try:
-                            num = int(str(val).split(" ")[0])
-                            return f"background-color: {oscore_palette.get(num, '')};"
-                        except Exception:
-                            return ""
+                styled = styled.set_table_styles(table_styles)
 
-                    styler = display_df.style
+                # Render as HTML so our CSS is respected
+                st.markdown(styled.to_html(), unsafe_allow_html=True)
 
-                    # color-only complexity & o-score
-                    styler = styler.applymap(complexity_bg, subset=["case_complexity"])
-                    styler = styler.applymap(oscore_bg, subset=["overall_performance"])
-                    styler = styler.applymap(step_bg, subset=ordered_steps)
-
-                    # hide text in colored cells (keep date & attending visible)
-                    styler = styler.format("", subset=["case_complexity", "overall_performance"] + ordered_steps)
-
-                    # hide row index
-                    styler = styler.hide(axis="index")
-
-                    # Table-wide HTML attributes so we can tweak appearance
-                    styler = styler.set_table_attributes('class="cum-table"')
-
-                    # --- Minimal CSS for compact, readable layout ---
-                    custom_css = """
-                    <style>
-                    .cum-table {
-                        border-collapse: collapse;
-                        width: 100%;
-                        table-layout: fixed;
-                    }
-                    .cum-table th,
-                    .cum-table td {
-                        border: 1px solid #888;
-                        padding: 4px 2px;
-                        text-align: center;
-                    }
-                    /* Date + Attending wider */
-                    .cum-table th:nth-child(1),
-                    .cum-table td:nth-child(1) {
-                        min-width: 110px;
-                        max-width: 130px;
-                        white-space: nowrap;
-                    }
-                    .cum-table th:nth-child(2),
-                    .cum-table td:nth-child(2) {
-                        min-width: 130px;
-                        max-width: 150px;
-                        white-space: nowrap;
-                    }
-                    /* Complexity & O-Score medium */
-                    .cum-table th:nth-child(3),
-                    .cum-table td:nth-child(3),
-                    .cum-table th:nth-child(4),
-                    .cum-table td:nth-child(4) {
-                        min-width: 60px;
-                        max-width: 70px;
-                        white-space: nowrap;
-                    }
-                    /* Step columns compact with wrapping */
-                    .cum-table th:nth-child(n+5),
-                    .cum-table td:nth-child(n+5) {
-                        min-width: 40px;
-                        max-width: 55px;
-                        white-space: normal;
-                        word-wrap: break-word;
-                    }
-                    .cum-table th {
-                        font-size: 11px;
-                        line-height: 1.2;
-                    }
-                    .cum-table td {
-                        font-size: 12px;
-                    }
-                    </style>
+                # ------------- Legends -------------
+                st.markdown("#### Case Complexity Legend")
+                st.markdown(
                     """
+<style>
+.legend-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--secondary-background-color);
+}
+</style>
+<div class="legend-row">
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#C8E6C9;"></span>Straight Forward
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#FFF59D;"></span>Moderate
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#FFAB91;"></span>Complex
+  </span>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
 
-                    # Render via HTML component so <style> is respected
-                    html(custom_css + styler.to_html(), height=600, scrolling=True)
+                st.markdown("#### O-Score Legend")
+                st.markdown(
+                    """
+<div class="legend-row">
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#FF4D4D;"></span>1 – Not Yet
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#FF944D;"></span>2 – Steer
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#FFD633;"></span>3 – Prompt
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#99E699;"></span>4 – Backup
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#33CC33;"></span>5 – Auto
+  </span>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
 
-                    # --- Legends ---
-                    st.markdown("**Case Complexity Legend:**")
-                    st.markdown("""
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:12px;">
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#C6EFCE;border:1px solid #999;margin-right:4px;"></span>Straight Forward</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFEB9C;border:1px solid #999;margin-right:4px;"></span>Moderate</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFC7CE;border:1px solid #999;margin-right:4px;"></span>Complex</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                # ------------- Excel export (same data) -------------
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    pivot.to_excel(writer, index=False, sheet_name="Cumulative")
+                    ws = writer.sheets["Cumulative"]
 
-                    st.markdown("**O-Score Legend:**")
-                    st.markdown("""
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:12px;">
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FF0000;border:1px solid #999;margin-right:4px;"></span>1 - Not Yet</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFA500;border:1px solid #999;margin-right:4px;"></span>2 - Steer</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#FFD700;border:1px solid #999;margin-right:4px;"></span>3 - Prompt</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#90EE90;border:1px solid #999;margin-right:4px;"></span>4 - Backup</div>
-                      <div><span style="display:inline-block;width:16px;height:16px;background-color:#008000;border:1px solid #999;margin-right:4px;"></span>5 - Auto</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    from openpyxl.styles import PatternFill, Font
 
-                    # --- Excel export (full text + colors) ---
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                        export_cols = ["date", "attending_name", "case_id",
-                                       "case_complexity", "overall_performance"] + ordered_steps
-                        export_df = pivot[export_cols]
-                        export_df.to_excel(writer, index=False, sheet_name="Cumulative")
-                        ws = writer.sheets["Cumulative"]
+                    step_fill_map = {
+                        "Not Done": "D3D3D3",
+                        "Not Yet": "FF4D4D",
+                        "Steer": "FF944D",
+                        "Prompt": "FFD633",
+                        "Back up": "99E699",
+                        "Auto": "33CC33",
+                    }
+                    # Apply colors only to step cells in Excel
+                    start_col = 6  # 1-based: date, attending, case_id, complexity, O-score → first 5
+                    for row in ws.iter_rows(
+                        min_row=2,
+                        max_row=ws.max_row,
+                        min_col=start_col,
+                        max_col=5 + len(ordered_steps),
+                    ):
+                        for cell in row:
+                            val = cell.value
+                            if val in step_fill_map:
+                                cell.fill = PatternFill(
+                                    start_color=step_fill_map[val],
+                                    end_color=step_fill_map[val],
+                                    fill_type="solid",
+                                )
+                                cell.font = Font(
+                                    color="FFFFFF"
+                                    if val in ("Not Yet", "Auto")
+                                    else "000000"
+                                )
 
-                        from openpyxl.styles import PatternFill, Font
-                        fill_map = {
-                            "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
-                            "Not Yet":  PatternFill(start_color="FF0000", fill_type="solid"),
-                            "Steer":    PatternFill(start_color="FFA500", fill_type="solid"),
-                            "Prompt":   PatternFill(start_color="FFD700", fill_type="solid"),
-                            "Back up":  PatternFill(start_color="90EE90", fill_type="solid"),
-                            "Auto":     PatternFill(start_color="008000", fill_type="solid"),
-                        }
-
-                        start_col = 6  # first 5 are meta columns
-                        for row in ws.iter_rows(
-                            min_row=2, max_row=ws.max_row,
-                            min_col=start_col, max_col=5 + len(ordered_steps)
-                        ):
-                            for cell in row:
-                                if cell.value in fill_map:
-                                    cell.fill = fill_map[cell.value]
-                                    cell.font = Font(color="FFFFFF") if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
-
-                    excel_data = output.getvalue()
-                    st.download_button(
-                        label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
-                        data=excel_data,
-                        file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                excel_data = output.getvalue()
+                st.download_button(
+                    label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
+                    data=excel_data,
+                    file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
 
                 if st.button("⬅️ Back to Home"):
                     st.session_state["page"] = "home"
