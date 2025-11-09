@@ -931,21 +931,24 @@ elif st.session_state["page"] == "cumulative":
 
                 def oscore_color_map(val):
                     """
-                    Color-code overall O-Score.
+                    Color-code overall O-Score (color only, no text).
                     Expected strings: '1 - Not Yet', '2 - Steer', '3 - Prompt', '4 - Backup', '5 - Auto'
                     """
+                    base = ""
                     if isinstance(val, str):
                         if val.startswith("1"):
-                            return "background-color: red; color: white;"
-                        if val.startswith("2"):
-                            return "background-color: orange; color: black;"
-                        if val.startswith("3"):
-                            return "background-color: gold; color: black;"
-                        if val.startswith("4"):
-                            return "background-color: lightgreen; color: black;"
-                        if val.startswith("5"):
-                            return "background-color: green; color: white;"
-                    return ""
+                            base = "background-color: red;"
+                        elif val.startswith("2"):
+                            base = "background-color: orange;"
+                        elif val.startswith("3"):
+                            base = "background-color: gold;"
+                        elif val.startswith("4"):
+                            base = "background-color: lightgreen;"
+                        elif val.startswith("5"):
+                            base = "background-color: green;"
+                    if base:
+                        base += " color: transparent;"
+                    return base
 
                 st.subheader("On-screen view (for screenshots)")
                 st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
@@ -957,7 +960,7 @@ elif st.session_state["page"] == "cumulative":
                     .applymap(step_color_map, subset=ordered_steps)
                     # complexity colored block only
                     .applymap(complexity_color_map, subset=["Complexity"])
-                    # O-score colored with text
+                    # O-score colored block only
                     .applymap(oscore_color_map, subset=["O-Score"])
                     # metadata columns readable, horizontal
                     .set_properties(
@@ -979,17 +982,18 @@ elif st.session_state["page"] == "cumulative":
                     )
                 )
 
-                # Rotate ONLY the step headers vertically
+                # Rotate ONLY the step headers vertically (not upside down)
                 header_styles = []
                 for idx, col_name in enumerate(screenshot_df.columns):
                     if col_name in ordered_steps:
                         header_styles.append({
                             "selector": f"th.col_heading.level0.col{idx}",
                             "props": [
-                                ("writing-mode", "vertical-rl"),
-                                ("transform", "rotate(180deg)"),
+                                ("transform", "rotate(-90deg)"),
+                                ("transform-origin", "left bottom"),
                                 ("white-space", "nowrap"),
-                                ("height", "180px"),
+                                ("height", "160px"),
+                                ("vertical-align", "bottom"),
                             ],
                         })
 
@@ -1014,18 +1018,20 @@ elif st.session_state["page"] == "cumulative":
                         "Auto": PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    # Step columns start after: date, attending_name, case_id, case_complexity, overall_performance
-                    start_col = 6
+                    # Apply colors to step cells in Excel
+                    start_col = 6  # after date, attending, case_id, complexity, O-score
                     for row in ws.iter_rows(
                         min_row=2,
                         max_row=ws.max_row,
                         min_col=start_col,
-                        max_col=5 + len(ordered_steps),
+                        max_col=5 + len(ordered_steps)
                     ):
                         for cell in row:
                             if cell.value in fill_map:
                                 cell.fill = fill_map[cell.value]
-                                cell.font = Font(color="FFFFFF") if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
+                                cell.font = Font(
+                                    color="FFFFFF" if cell.value in ["Not Yet", "Auto"] else "000000"
+                                )
 
                 excel_data = output.getvalue()
                 st.download_button(
