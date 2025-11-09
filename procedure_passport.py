@@ -8,6 +8,9 @@ import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
 from streamlit.components.v1 import html
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 st.set_page_config(
     page_title="Procedure Passport",
@@ -759,7 +762,7 @@ elif st.session_state["page"] == "comments":
                 go_next("home")
 
 # -------------------
-# PAGE: Cumulative Dashboard (Google Sheets only)
+# PAGE: Cumulative Dashboard (Heatmap + Excel export)
 # -------------------
 elif st.session_state["page"] == "cumulative":
     st.title("📊 Cumulative Dashboard")
@@ -859,198 +862,193 @@ elif st.session_state["page"] == "cumulative":
                 )
 
                 # --- Filter to selected procedure ---
-                proc_data = merged[merged["case_procedure_id"] == selected_proc]
+                proc_data = merged[merged["case_procedure_id"] == selected_proc].copy()
 
-                # --- Order steps correctly ---
-                ordered_steps = (
-                    steps_df[steps_df["procedure_id"] == selected_proc]
-                    .sort_values("step_order")["step_name"]
-                    .tolist()
-                )
+                if proc_data.empty:
+                    st.info("No data for that procedure yet.")
+                    if st.button("⬅️ Back to Home"):
+                        st.session_state["page"] = "home"
+                        st.cache_data.clear()
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    # Normalize & sort dates
+                    proc_data["date"] = pd.to_datetime(proc_data["date"], errors="coerce")
 
-                # --- Pivot data for visualization / export ---
-                pivot = proc_data.pivot_table(
-                    index=["date", "attending_name", "case_id",
-                           "case_complexity", "overall_performance"],
-                    columns="step_name",
-                    values="rating",
-                    aggfunc="first"
-                ).reset_index()
+                    # --- Order steps correctly for this procedure ---
+                    ordered_steps = (
+                        steps_df[steps_df["procedure_id"] == selected_proc]
+                        .sort_values("step_order")["step_name"]
+                        .tolist()
+                    )
 
-                # Ensure all steps present as columns
-                for step in ordered_steps:
-                    if step not in pivot.columns:
-                        pivot[step] = pd.NA
+                    # --- Derive a case-order table (most recent first for screenshot) ---
+                    case_meta = (
+                        proc_data[["case_id", "date", "attending_name",
+                                  "case_complexity", "overall_performance"]]
+                        .drop_duplicates()
+                        .sort_values("date", ascending=False)
+                    )
 
-                # Reorder columns
-                pivot = pivot[
-                    ["date", "attending_name", "case_id",
-                     "case_complexity", "overall_performance"] + ordered_steps
-                ]
+                    case_ids = case_meta["case_id"].tolist()
+                    n_cases = len(case_ids)
+                    n_steps = len(ordered_steps)
 
-                # -------------------------------------------------
-                # Nicely formatted, screenshot-friendly heatmap
-                # -------------------------------------------------
-                st.markdown(
-                    "### On-screen view (for screenshots)\n"
-                    "Most recent cases are at the top. Zoom out and screenshot this grid 📸"
-                )
+                    if n_cases == 0 or n_steps == 0:
+                        st.info("No steps or cases to display for this procedure yet.")
+                        if st.button("⬅️ Back to Home"):
+                            st.session_state["page"] = "home"
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        # ------------------------------------------
+                        # Build rating matrix for heatmap
+                        # rows = steps, columns = cases
+                        # ------------------------------------------
+                        rating_to_idx = {r: i for i, r in enumerate(RATING_OPTIONS)}
+                        matrix = np.full((n_steps, n_cases), np.nan)
 
-                # Sort with most recent first
-                screenshot_df = pivot.sort_values("date", ascending=False).copy()
+                        # Fill matrix with rating indices
+                        for j, cid in enumerate(case_ids):
+                            sub = proc_data[proc_data["case_id"] == cid]
+                            for i, step_name in enumerate(ordered_steps):
+                                r = sub.loc[sub["step_name"] == step_name, "rating"]
+                                if not r.empty and pd.notna(r.iloc[0]):
+                                    rating_val = r.iloc[0]
+                                    if rating_val in rating_to_idx:
+                                        matrix[i, j] = rating_to_idx[rating_val]
 
-                # Drop case_id from this view (still used in Excel)
-                screenshot_df = screenshot_df.drop(columns=["case_id"])
+                        # Colormap for ratings (same colors as RATING_COLOR)
+                        rating_colors = [
+                            "#bfbfbf",  # Not Done
+                            "#ff4d4d",  # Not Yet
+                            "#ff944d",  # Steer
+                            "#ffd633",  # Prompt
+                            "#99e699",  # Back up
+                            "#33cc33",  # Auto
+                        ]
+                        cmap = mcolors.ListedColormap(rating_colors)
+                        bounds = np.arange(-0.5, len(RATING_OPTIONS) + 0.5, 1)
+                        norm = mcolors.BoundaryNorm(bounds, cmap.N)
 
-                # Color maps
-                step_color_map = {
-                    "Not Done":  "#D3D3D3",
-                    "Not Yet":   "#FF4D4D",
-                    "Steer":     "#FF944D",
-                    "Prompt":    "#FFD633",
-                    "Back up":   "#99E699",
-                    "Auto":      "#33CC33",
-                }
+                        # ------------------------------------------
+                        # Build 1D color bars for complexity & O-score
+                        # ------------------------------------------
+                        complexity_color_map = {
+                            "Straight Forward": "#C8E6C9",  # light green
+                            "Moderate":         "#FFF59D",  # light yellow
+                            "Complex":          "#FFAB91",  # light red/orange
+                        }
 
-                complexity_color_map = {
-                    "Straight Forward": "#C8E6C9",  # light green
-                    "Moderate":         "#FFF59D",  # light yellow
-                    "Complex":          "#FFAB91",  # light red/orange
-                }
+                        o_score_color_map = {
+                            "1": "#FF4D4D",  # Not Yet
+                            "2": "#FF944D",  # Steer
+                            "3": "#FFD633",  # Prompt
+                            "4": "#99E699",  # Backup
+                            "5": "#33CC33",  # Auto
+                        }
 
-                o_score_color_map = {
-                    "1": "#FF4D4D",  # Not Yet
-                    "2": "#FF944D",  # Steer
-                    "3": "#FFD633",  # Prompt
-                    "4": "#99E699",  # Backup
-                    "5": "#33CC33",  # Auto
-                }
+                        # 1D arrays of colors per case (aligned with case_ids)
+                        complexity_colors = []
+                        o_score_colors = []
+                        for _, row in case_meta.iterrows():
+                            # complexity
+                            comp = row.get("case_complexity", None)
+                            complexity_colors.append(complexity_color_map.get(comp, "#E0E0E0"))
 
-                def color_steps(val):
-                    if pd.isna(val):
-                        return ""
-                    return f"background-color: {step_color_map.get(val, '')}"
+                            # O-score stored like "3 - Prompt"
+                            o_val = row.get("overall_performance", "")
+                            key = ""
+                            if isinstance(o_val, str) and "-" in o_val:
+                                key = o_val.split("-")[0].strip()
+                            elif isinstance(o_val, str):
+                                key = o_val.strip()
+                            o_score_colors.append(o_score_color_map.get(key, "#E0E0E0"))
 
-                def color_complexity(val):
-                    if pd.isna(val):
-                        return ""
-                    return f"background-color: {complexity_color_map.get(val, '')}"
+                        complexity_colors = np.array(complexity_colors)[np.newaxis, :]  # 1 x N
+                        o_score_colors = np.array(o_score_colors)[np.newaxis, :]        # 1 x N
 
-                def color_o_score(val):
-                    if not isinstance(val, str):
-                        return ""
-                    key = val.split("-")[0].strip()  # "3 - Prompt" → "3"
-                    return f"background-color: {o_score_color_map.get(key, '')}"
+                        # ------------------------------------------
+                        # Create the figure (heatmap + 2 color bars)
+                        # ------------------------------------------
+                        # dynamic size: more cases/steps = bigger figure, but capped
+                        fig_width = max(6, min(16, n_cases * 0.6))
+                        fig_height = max(5, min(14, n_steps * 0.4 + 2.5))
 
-                # Build styler
-                styled = screenshot_df.style
-
-                # Apply colors to step cells
-                styled = styled.applymap(
-                    color_steps,
-                    subset=ordered_steps
-                )
-
-                # Apply colors to complexity / O-score columns
-                styled = styled.applymap(
-                    color_complexity,
-                    subset=["case_complexity"]
-                )
-                styled = styled.applymap(
-                    color_o_score,
-                    subset=["overall_performance"]
-                )
-
-                # Hide the index
-                styled = styled.hide(axis="index")
-
-                # Make metadata columns a bit wider; step columns narrow
-                styled = styled.set_properties(
-                    subset=["date", "attending_name"],
-                    **{"min-width": "120px", "white-space": "nowrap"}
-                ).set_properties(
-                    subset=["case_complexity", "overall_performance"],
-                    **{"min-width": "90px", "text-align": "center"}
-                ).set_properties(
-                    subset=ordered_steps,
-                    **{
-                        "min-width": "36px",
-                        "max-width": "36px",
-                        "text-align": "center"
-                    }
-                )
-
-                # Table-level styles (theme-aware via CSS vars)
-                table_styles = [
-                    {
-                        "selector": "table",
-                        "props": [
-                            ("border-collapse", "collapse"),
-                            ("margin", "0 auto"),
-                        ],
-                    },
-                    {
-                        "selector": "th, td",
-                        "props": [
-                            ("border", "1px solid var(--secondary-background-color)"),
-                            ("padding", "4px"),
-                            ("font-size", "0.8rem"),
-                        ],
-                    },
-                    {
-                        "selector": "th.col_heading",
-                        "props": [
-                            ("text-align", "center"),
-                            ("vertical-align", "bottom"),
-                            ("font-weight", "600"),
-                        ],
-                    },
-                ]
-
-                # Make step headers vertical & narrow
-                # We target their column indices in the styler
-                all_cols = list(screenshot_df.columns)
-                for idx, col_name in enumerate(all_cols):
-                    if col_name in ordered_steps:
-                        table_styles.append(
-                            {
-                                "selector": f"th.col_heading.level0.col{idx}",
-                                "props": [
-                                    ("writing-mode", "vertical-rl"),
-                                    ("text-orientation", "mixed"),
-                                    ("white-space", "nowrap"),
-                                    ("font-size", "0.75rem"),
-                                    ("padding", "4px 2px"),
-                                ],
-                            }
+                        fig = plt.figure(figsize=(fig_width, fig_height))
+                        gs = fig.add_gridspec(
+                            3, 1,
+                            height_ratios=[n_steps, 0.5, 0.5],
+                            hspace=0.15
                         )
 
-                # Hide text for complexity / O-score if you want color-only:
-                # (comment this block out if you decide you *do* want text)
-                comp_idx = all_cols.index("case_complexity")
-                o_idx = all_cols.index("overall_performance")
-                table_styles.append(
-                    {
-                        "selector": f"td.col{comp_idx}",
-                        "props": [("color", "transparent")],
-                    }
-                )
-                table_styles.append(
-                    {
-                        "selector": f"td.col{o_idx}",
-                        "props": [("color", "transparent")],
-                    }
-                )
+                        # Main heatmap for step ratings
+                        ax_heat = fig.add_subplot(gs[0, 0])
+                        im = ax_heat.imshow(matrix, cmap=cmap, norm=norm, aspect="auto")
 
-                styled = styled.set_table_styles(table_styles)
+                        # Y axis = steps
+                        ax_heat.set_yticks(np.arange(n_steps))
+                        ax_heat.set_yticklabels(ordered_steps, fontsize=8)
+                        # X axis = cases (date + attending)
+                        x_labels = []
+                        for _, row in case_meta.iterrows():
+                            d = row["date"]
+                            if pd.notna(d):
+                                d_str = d.strftime("%m/%d")
+                            else:
+                                d_str = "?"
+                            att = row["attending_name"] if pd.notna(row["attending_name"]) else ""
+                            # Shorten attending for width
+                            att_short = att.split(" ")[-1] if att else ""
+                            x_labels.append(f"{d_str}\n{att_short}")
 
-                # Render as HTML so our CSS is respected
-                st.markdown(styled.to_html(), unsafe_allow_html=True)
+                        ax_heat.set_xticks(np.arange(n_cases))
+                        ax_heat.set_xticklabels(x_labels, fontsize=7, rotation=90)
+                        ax_heat.set_xlabel("Cases (Date / Attending)", fontsize=9)
+                        ax_heat.set_title(
+                            f"{procs_map.get(selected_proc, selected_proc)} – Ratings by Step",
+                            fontsize=10
+                        )
 
-                # ------------- Legends -------------
-                st.markdown("#### Case Complexity Legend")
-                st.markdown(
-                    """
+                        # Draw grid lines for clarity
+                        ax_heat.set_xticks(np.arange(-0.5, n_cases, 1), minor=True)
+                        ax_heat.set_yticks(np.arange(-0.5, n_steps, 1), minor=True)
+                        ax_heat.grid(which="minor", color="white", linewidth=0.5)
+                        ax_heat.tick_params(which="minor", bottom=False, left=False)
+
+                        # Complexity color bar (1 x N)
+                        ax_comp = fig.add_subplot(gs[1, 0], sharex=ax_heat)
+                        # Make an "image" from the colors
+                        comp_img = np.arange(n_cases)[np.newaxis, :]
+                        comp_cmap = mcolors.ListedColormap(complexity_colors.flatten())
+                        ax_comp.imshow(comp_img, aspect="auto", cmap=comp_cmap)
+                        ax_comp.set_yticks([])
+                        ax_comp.set_xticks([])
+                        ax_comp.set_ylabel("Complexity", fontsize=8, rotation=0, labelpad=35)
+
+                        # O-score color bar (1 x N)
+                        ax_o = fig.add_subplot(gs[2, 0], sharex=ax_heat)
+                        o_img = np.arange(n_cases)[np.newaxis, :]
+                        o_cmap = mcolors.ListedColormap(o_score_colors.flatten())
+                        ax_o.imshow(o_img, aspect="auto", cmap=o_cmap)
+                        ax_o.set_yticks([])
+                        ax_o.set_xticks([])
+                        ax_o.set_ylabel("O-Score", fontsize=8, rotation=0, labelpad=35)
+
+                        # Tight layout for screenshot friendliness
+                        plt.tight_layout()
+
+                        st.markdown(
+                            "### On-screen heatmap (best for screenshots)\n"
+                            "Zoom out a bit on your device, then screenshot this figure 📸"
+                        )
+                        st.pyplot(fig, use_container_width=True)
+
+                        # ------------- Legends -------------
+                        st.markdown("#### Step Rating Legend")
+                        st.markdown(
+                            """
 <style>
 .legend-row {
   display: flex;
@@ -1074,6 +1072,33 @@ elif st.session_state["page"] == "cumulative":
 </style>
 <div class="legend-row">
   <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#bfbfbf;"></span>Not Done
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#ff4d4d;"></span>Not Yet
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#ff944d;"></span>Steer
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#ffd633;"></span>Prompt
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#99e699;"></span>Back up
+  </span>
+  <span class="legend-item">
+    <span class="legend-swatch" style="background-color:#33cc33;"></span>Auto
+  </span>
+</div>
+""",
+                            unsafe_allow_html=True,
+                        )
+
+                        st.markdown("#### Case Complexity Legend")
+                        st.markdown(
+                            """
+<div class="legend-row">
+  <span class="legend-item">
     <span class="legend-swatch" style="background-color:#C8E6C9;"></span>Straight Forward
   </span>
   <span class="legend-item">
@@ -1084,12 +1109,12 @@ elif st.session_state["page"] == "cumulative":
   </span>
 </div>
 """,
-                    unsafe_allow_html=True,
-                )
+                            unsafe_allow_html=True,
+                        )
 
-                st.markdown("#### O-Score Legend")
-                st.markdown(
-                    """
+                        st.markdown("#### O-Score Legend")
+                        st.markdown(
+                            """
 <div class="legend-row">
   <span class="legend-item">
     <span class="legend-swatch" style="background-color:#FF4D4D;"></span>1 – Not Yet
@@ -1108,57 +1133,75 @@ elif st.session_state["page"] == "cumulative":
   </span>
 </div>
 """,
-                    unsafe_allow_html=True,
-                )
+                            unsafe_allow_html=True,
+                        )
 
-                # ------------- Excel export (same data) -------------
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    pivot.to_excel(writer, index=False, sheet_name="Cumulative")
-                    ws = writer.sheets["Cumulative"]
+                        # ------------- Excel export (same data as before) -------------
+                        pivot = proc_data.pivot_table(
+                            index=["date", "attending_name", "case_id",
+                                   "case_complexity", "overall_performance"],
+                            columns="step_name",
+                            values="rating",
+                            aggfunc="first"
+                        ).reset_index()
 
-                    from openpyxl.styles import PatternFill, Font
+                        # Ensure all steps present
+                        for step in ordered_steps:
+                            if step not in pivot.columns:
+                                pivot[step] = pd.NA
 
-                    step_fill_map = {
-                        "Not Done": "D3D3D3",
-                        "Not Yet": "FF4D4D",
-                        "Steer": "FF944D",
-                        "Prompt": "FFD633",
-                        "Back up": "99E699",
-                        "Auto": "33CC33",
-                    }
-                    # Apply colors only to step cells in Excel
-                    start_col = 6  # 1-based: date, attending, case_id, complexity, O-score → first 5
-                    for row in ws.iter_rows(
-                        min_row=2,
-                        max_row=ws.max_row,
-                        min_col=start_col,
-                        max_col=5 + len(ordered_steps),
-                    ):
-                        for cell in row:
-                            val = cell.value
-                            if val in step_fill_map:
-                                cell.fill = PatternFill(
-                                    start_color=step_fill_map[val],
-                                    end_color=step_fill_map[val],
-                                    fill_type="solid",
-                                )
-                                cell.font = Font(
-                                    color="FFFFFF"
-                                    if val in ("Not Yet", "Auto")
-                                    else "000000"
-                                )
+                        pivot = pivot[
+                            ["date", "attending_name", "case_id",
+                             "case_complexity", "overall_performance"] + ordered_steps
+                        ]
 
-                excel_data = output.getvalue()
-                st.download_button(
-                    label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
-                    data=excel_data,
-                    file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                            pivot.to_excel(writer, index=False, sheet_name="Cumulative")
+                            ws = writer.sheets["Cumulative"]
 
-                if st.button("⬅️ Back to Home"):
-                    st.session_state["page"] = "home"
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
+                            from openpyxl.styles import PatternFill, Font
+
+                            step_fill_map = {
+                                "Not Done": "D3D3D3",
+                                "Not Yet": "FF4D4D",
+                                "Steer": "FF944D",
+                                "Prompt": "FFD633",
+                                "Back up": "99E699",
+                                "Auto": "33CC33",
+                            }
+
+                            start_col = 6  # after date, attending, case_id, complexity, overall
+                            for row in ws.iter_rows(
+                                min_row=2,
+                                max_row=ws.max_row,
+                                min_col=start_col,
+                                max_col=5 + len(ordered_steps),
+                            ):
+                                for cell in row:
+                                    val = cell.value
+                                    if val in step_fill_map:
+                                        cell.fill = PatternFill(
+                                            start_color=step_fill_map[val],
+                                            end_color=step_fill_map[val],
+                                            fill_type="solid",
+                                        )
+                                        cell.font = Font(
+                                            color="FFFFFF"
+                                            if val in ("Not Yet", "Auto")
+                                            else "000000"
+                                        )
+
+                        excel_data = output.getvalue()
+                        st.download_button(
+                            label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
+                            data=excel_data,
+                            file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+                        if st.button("⬅️ Back to Home"):
+                            st.session_state["page"] = "home"
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
