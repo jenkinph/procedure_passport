@@ -770,6 +770,8 @@ elif st.session_state["page"] == "cumulative":
         st.error("⚠️ No resident logged in. Please log in first.")
         if st.button("⬅️ Back to Home"):
             st.session_state["page"] = "home"
+            st.cache_data.clear()
+            time.sleep(1)
             st.rerun()
 
     else:
@@ -784,8 +786,7 @@ elif st.session_state["page"] == "cumulative":
         scores_df = read_sheet_df(
             SHEET_SCORES,
             expected_cols=[
-                "case_id", "step_id", "rating", "rating_num",
-                "case_complexity", "overall_performance"
+                "case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"
             ]
         )
         steps_df = read_sheet_df(
@@ -812,6 +813,8 @@ elif st.session_state["page"] == "cumulative":
             st.info("No cases logged yet.")
             if st.button("⬅️ Back to Home"):
                 st.session_state["page"] = "home"
+                st.cache_data.clear()
+                time.sleep(1)
                 st.rerun()
         else:
             # --- Prepare smaller tables for merging ---
@@ -841,6 +844,8 @@ elif st.session_state["page"] == "cumulative":
                 st.info("No assessment items yet.")
                 if st.button("⬅️ Back to Home"):
                     st.session_state["page"] = "home"
+                    st.cache_data.clear()
+                    time.sleep(1)
                     st.rerun()
             else:
                 # --- Procedure selection dropdown ---
@@ -861,44 +866,33 @@ elif st.session_state["page"] == "cumulative":
                     .tolist()
                 )
 
-                if not ordered_steps:
-                    st.warning("No steps defined for this procedure yet.")
-                    if st.button("⬅️ Back to Home"):
-                        st.session_state["page"] = "home"
-                        st.rerun()
-                else:
-                    # --- Pivot data for visualization ---
-                    pivot = proc_data.pivot_table(
-                        index=["date", "attending_name", "case_id",
-                               "case_complexity", "overall_performance"],
-                        columns="step_name",
-                        values="rating",
-                        aggfunc="first"
-                    ).reset_index()
+                # --- Pivot data for visualization ---
+                pivot = proc_data.pivot_table(
+                    index=["date", "attending_name", "case_id",
+                           "case_complexity", "overall_performance"],
+                    columns="step_name",
+                    values="rating",
+                    aggfunc="first"
+                ).reset_index()
 
-                    # --- Ensure consistent column order ---
-                    cols = ["date", "attending_name", "case_id",
-                            "case_complexity", "overall_performance"] + ordered_steps
-                    for c in ordered_steps:
-                        if c not in pivot.columns:
-                            pivot[c] = pd.NA
-                    pivot = pivot[cols]
+                # --- Ensure consistent column order ---
+                cols = ["date", "attending_name", "case_id",
+                        "case_complexity", "overall_performance"] + ordered_steps
+                for c in ordered_steps:
+                    if c not in pivot.columns:
+                        pivot[c] = pd.NA
+                pivot = pivot[cols]
 
-                    # --- Sort by date (most recent first) ---
-                    # keep original string for display, but sort using datetime
-                    sort_dates = pd.to_datetime(pivot["date"], errors="coerce")
-                    pivot = pivot.loc[sort_dates.sort_values(ascending=False).index]
+                # Sort most recent first for screenshots
+                display_df = pivot.sort_values("date", ascending=False).reset_index(drop=True)
 
-                    # --- Nice column names for display ---
-                    display_df = pivot.rename(columns={
-                        "date": "Date",
-                        "attending_name": "Attending",
-                        "case_complexity": "Complexity",
-                        "overall_performance": "O-Score",
-                    })
-
-                    # We don't really need case_id on-screen for screenshots
-                    screenshot_df = display_df.drop(columns=["case_id"], errors="ignore")
+                # Rename for nicer column headers
+                screenshot_df = display_df.rename(columns={
+                    "date": "Date",
+                    "attending_name": "Attending",
+                    "case_complexity": "Complexity",
+                    "overall_performance": "O-Score",
+                })
 
                 # --- Color maps ---
                 def step_color_map(val):
@@ -934,75 +928,75 @@ elif st.session_state["page"] == "cumulative":
                 st.subheader("On-screen view (for screenshots)")
                 st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
 
-                # Wider, non-wrapping metadata columns; centered colored step blocks
+                # --- Style: wide readable metadata + colored step blocks ---
                 styled = (
                     screenshot_df.style
-                        # color the steps as blocks
-                        .applymap(step_color_map, subset=ordered_steps)
-                        # color code the complexity column
-                        .applymap(complexity_color_map, subset=["Complexity"])
-                        # keep metadata readable, horizontal
-                        .set_properties(
-                            subset=["Date", "Attending", "Complexity", "O-Score"],
-                            **{
-                                "min-width": "140px",
-                                "white-space": "nowrap",
-                                "text-align": "left",
-                                "font-weight": "normal",
-                            },
-                        )
-                        # center step cells
-                        .set_properties(
-                            subset=ordered_steps,
-                            **{
-                                "text-align": "center",
-                                "min-width": "70px",
-                            },
-                        )
+                    # color the steps as blocks
+                    .applymap(step_color_map, subset=ordered_steps)
+                    # color code the complexity column
+                    .applymap(complexity_color_map, subset=["Complexity"])
+                    # keep metadata readable, horizontal
+                    .set_properties(
+                        subset=["Date", "Attending", "Complexity", "O-Score"],
+                        **{
+                            "min-width": "150px",
+                            "white-space": "nowrap",
+                            "text-align": "left",
+                            "font-weight": "normal",
+                        },
+                    )
+                    # center step cells and keep them wide enough to tap/see
+                    .set_properties(
+                        subset=ordered_steps,
+                        **{
+                            "text-align": "center",
+                            "min-width": "70px",
+                        },
+                    )
                 )
 
-                # Use table (static) instead of dataframe to avoid horizontal scrolling
+                # Use table (static) instead of dataframe to avoid scroll bars
                 st.table(styled)
 
-                    # --- Export to Excel with colors (full data, including case_id) ---
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                        pivot.to_excel(writer, index=False, sheet_name="Cumulative")
-                        ws = writer.sheets["Cumulative"]
+                # --- Export to Excel with colors (same data, original headers) ---
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    display_df.to_excel(writer, index=False, sheet_name="Cumulative")
+                    ws = writer.sheets["Cumulative"]
 
-                        from openpyxl.styles import PatternFill, Font
-                        fill_map = {
-                            "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
-                            "Not Yet": PatternFill(start_color="FF0000", fill_type="solid"),
-                            "Steer": PatternFill(start_color="FFA500", fill_type="solid"),
-                            "Prompt": PatternFill(start_color="FFD700", fill_type="solid"),
-                            "Back up": PatternFill(start_color="90EE90", fill_type="solid"),
-                            "Auto": PatternFill(start_color="008000", fill_type="solid"),
-                        }
+                    from openpyxl.styles import PatternFill, Font
+                    fill_map = {
+                        "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
+                        "Not Yet": PatternFill(start_color="FF0000", fill_type="solid"),
+                        "Steer": PatternFill(start_color="FFA500", fill_type="solid"),
+                        "Prompt": PatternFill(start_color="FFD700", fill_type="solid"),
+                        "Back up": PatternFill(start_color="90EE90", fill_type="solid"),
+                        "Auto": PatternFill(start_color="008000", fill_type="solid"),
+                    }
 
-                        # Apply colors only to step cells
-                        start_col = 6  # A=1 → first 5 columns are metadata
-                        for row in ws.iter_rows(
-                            min_row=2,
-                            max_row=ws.max_row,
-                            min_col=start_col,
-                            max_col=5 + len(ordered_steps)
-                        ):
-                            for cell in row:
-                                if cell.value in fill_map:
-                                    cell.fill = fill_map[cell.value]
-                                    cell.font = Font(
-                                        color="FFFFFF"
-                                    ) if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
+                    # Apply colors to step cells (Excel columns: metadata 4 → steps start at 5)
+                    start_col = 5
+                    for row in ws.iter_rows(
+                        min_row=2,
+                        max_row=ws.max_row,
+                        min_col=start_col,
+                        max_col=4 + len(ordered_steps),
+                    ):
+                        for cell in row:
+                            if cell.value in fill_map:
+                                cell.fill = fill_map[cell.value]
+                                cell.font = Font(color="FFFFFF") if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
 
-                    excel_data = output.getvalue()
-                    st.download_button(
-                        label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
-                        data=excel_data,
-                        file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                excel_data = output.getvalue()
+                st.download_button(
+                    label=f"📥 Download {procs_map.get(selected_proc, selected_proc)} Cumulative Excel",
+                    data=excel_data,
+                    file_name=f"{resident}_{selected_proc}_cumulative.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
-                    if st.button("⬅️ Back to Home"):
-                        st.session_state["page"] = "home"
-                        st.rerun()
+                if st.button("⬅️ Back to Home"):
+                    st.session_state["page"] = "home"
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
