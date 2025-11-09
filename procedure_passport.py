@@ -758,7 +758,7 @@ elif st.session_state["page"] == "comments":
                 go_next("home")
 
 # -------------------
-# PAGE: Cumulative Dashboard (Google Sheets only)
+# PAGE: Cumulative Dashboard (screenshot-friendly)
 # -------------------
 elif st.session_state["page"] == "cumulative":
     st.title("📊 Cumulative Dashboard")
@@ -803,7 +803,7 @@ elif st.session_state["page"] == "cumulative":
             expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
         )
 
-        # --- Ensure expected columns exist ---
+        # --- Make sure complexity / O-Score columns exist ---
         for col in ["case_complexity", "overall_performance"]:
             if col not in scores_df.columns:
                 scores_df[col] = pd.NA
@@ -867,7 +867,7 @@ elif st.session_state["page"] == "cumulative":
                     .tolist()
                 )
 
-                # --- Pivot data for visualization ---
+                # --- Pivot data for visualization (keep case_id but we'll hide it) ---
                 pivot = proc_data.pivot_table(
                     index=["date", "attending_name", "case_id",
                            "case_complexity", "overall_performance"],
@@ -876,7 +876,7 @@ elif st.session_state["page"] == "cumulative":
                     aggfunc="first"
                 ).reset_index()
 
-                # --- Ensure consistent column order (case_id kept only for Excel) ---
+                # --- Ensure consistent column order ---
                 cols = ["date", "attending_name", "case_id",
                         "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
@@ -884,147 +884,133 @@ elif st.session_state["page"] == "cumulative":
                         pivot[c] = pd.NA
                 pivot = pivot[cols]
 
-                # Sort most recent first
-                display_df = pivot.sort_values("date", ascending=False).reset_index(drop=True)
-
-                # On-screen view: drop case_id, rename columns
-                screenshot_df = display_df.drop(columns=["case_id"], errors="ignore").rename(columns={
+                # --- Prepare display dataframe ---
+                display_df = pivot.drop(columns=["case_id"])
+                display_df = display_df.rename(columns={
                     "date": "Date",
                     "attending_name": "Attending",
                     "case_complexity": "Complexity",
                     "overall_performance": "O-Score",
                 })
 
+                # Sort by Date descending (most recent at top)
+                try:
+                    display_df["Date"] = pd.to_datetime(display_df["Date"])
+                    display_df = display_df.sort_values("Date", ascending=False)
+                    display_df["Date"] = display_df["Date"].dt.date.astype(str)
+                except Exception:
+                    # if conversion fails, leave order as-is
+                    pass
+
+                display_df = display_df.reset_index(drop=True)
+
                 # --- Color maps ---
-                def step_color_map(val):
-                    """Color-only blocks for step ratings (text hidden)."""
-                    base = ""
-                    if val == "Not Done":
-                        base = "background-color: lightgray;"
-                    elif val == "Not Yet":
-                        base = "background-color: red;"
-                    elif val == "Steer":
-                        base = "background-color: orange;"
-                    elif val == "Prompt":
-                        base = "background-color: gold;"
-                    elif val == "Back up":
-                        base = "background-color: lightgreen;"
-                    elif val == "Auto":
-                        base = "background-color: green;"
-                    if base:
-                        base += " color: transparent;"
-                    return base
+                def step_color(val):
+                    # reuse your existing RATING_COLOR dict
+                    return RATING_COLOR.get(val, "")
 
-                def complexity_color_map(val):
-                    """Background for complexity, hide text."""
-                    if val == "Straight Forward":
-                        base = "background-color: lightgreen;"
-                    elif val == "Moderate":
-                        base = "background-color: gold;"
-                    elif val == "Complex":
-                        base = "background-color: salmon;"
-                    else:
-                        base = ""
-                    if base:
-                        base += " color: transparent;"
-                    return base
+                COMPLEXITY_COLOR = {
+                    "Straight Forward": "background-color:#90EE90;",
+                    "Moderate":         "background-color:#FFD580;",
+                    "Complex":          "background-color:#FF7F7F;",
+                }
 
-                def oscore_color_map(val):
-                    """
-                    Color-code overall O-Score (color only, no text).
-                    Expected strings: '1 - Not Yet', '2 - Steer', '3 - Prompt', '4 - Backup', '5 - Auto'
-                    """
-                    base = ""
-                    if isinstance(val, str):
-                        if val.startswith("1"):
-                            base = "background-color: red;"
-                        elif val.startswith("2"):
-                            base = "background-color: orange;"
-                        elif val.startswith("3"):
-                            base = "background-color: gold;"
-                        elif val.startswith("4"):
-                            base = "background-color: lightgreen;"
-                        elif val.startswith("5"):
-                            base = "background-color: green;"
-                    if base:
-                        base += " color: transparent;"
-                    return base
+                def complexity_color(val):
+                    return COMPLEXITY_COLOR.get(val, "")
 
-                st.subheader("On-screen view (for screenshots)")
-                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+                O_SCORE_COLOR = {
+                    "1 - Not Yet":  "background-color:#ff4d4d;",
+                    "2 - Steer":    "background-color:#ff944d;",
+                    "3 - Prompt":   "background-color:#ffd633;",
+                    "4 - Backup":   "background-color:#99e699;",
+                    "5 - Auto":     "background-color:#33cc33;",
+                }
 
-                # Build styler
-                styled = (
-                    screenshot_df.style
-                    # color the steps as blocks
-                    .applymap(step_color_map, subset=ordered_steps)
-                    # complexity colored block only
-                    .applymap(complexity_color_map, subset=["Complexity"])
-                    # O-score colored block only
-                    .applymap(oscore_color_map, subset=["O-Score"])
-                    # metadata columns readable, horizontal
-                    .set_properties(
-                        subset=["Date", "Attending", "Complexity", "O-Score"],
-                        **{
-                            "min-width": "160px",
-                            "white-space": "nowrap",
-                            "text-align": "left",
-                            "font-weight": "normal",
-                        },
-                    )
-                    # step cells: decent width
-                    .set_properties(
-                        subset=ordered_steps,
-                        **{
-                            "text-align": "center",
-                            "min-width": "45px",
-                        },
-                    )
+                def oscore_color(val):
+                    return O_SCORE_COLOR.get(val, "")
+
+                # --- Build Styler with colors ---
+                styled = display_df.style
+
+                # color step cells
+                styled = styled.applymap(step_color, subset=ordered_steps)
+
+                # color complexity & O-Score and hide their text
+                styled = styled.applymap(complexity_color, subset=["Complexity"])
+                styled = styled.applymap(oscore_color, subset=["O-Score"])
+                styled = styled.set_properties(
+                    subset=["Complexity", "O-Score"],
+                    **{"color": "transparent"}  # text invisible, color remains
                 )
 
-                # Rotate ONLY the step headers vertically (not upside down)
+                # --- Vertical, skinny step headers like your Excel example ---
                 header_styles = []
-                for idx, col_name in enumerate(screenshot_df.columns):
+                for idx, col_name in enumerate(display_df.columns):
                     if col_name in ordered_steps:
                         header_styles.append({
                             "selector": f"th.col_heading.level0.col{idx}",
                             "props": [
                                 ("transform", "rotate(-90deg)"),
-                                ("transform-origin", "left bottom"),
+                                ("transform-origin", "bottom left"),
                                 ("white-space", "nowrap"),
-                                ("height", "160px"),
+                                ("height", "170px"),
                                 ("vertical-align", "bottom"),
+                                ("text-align", "left"),
+                                ("font-size", "11px"),
+                                ("width", "40px"),
+                                ("max-width", "40px"),
                             ],
                         })
 
                 styled = styled.set_table_styles(header_styles, overwrite=False)
 
-                # Static table to avoid scrollbars (better for screenshots)
+                # Narrow step columns, normal meta columns
+                styled = styled.set_properties(
+                    subset=ordered_steps,
+                    **{
+                        "min-width": "35px",
+                        "max-width": "40px",
+                        "width": "40px",
+                        "text-align": "center",
+                        "padding": "2px",
+                    },
+                ).set_properties(
+                    subset=["Date", "Attending"],
+                    **{
+                        "min-width": "140px",
+                        "max-width": "180px",
+                        "white-space": "nowrap",
+                        "text-align": "left",
+                        "padding": "4px",
+                    },
+                )
+
+                st.markdown("### On-screen view (for screenshots)")
+                st.caption("Most recent cases are at the top. Zoom out and screenshot this grid 📸")
+
+                # Static table (no scroll bars) for clean screenshots
                 st.table(styled)
 
-                # --- Export to Excel with colors (keep case_id in Excel) ---
+                # --- Excel export still uses the same pivot data (with text) ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    display_df.to_excel(writer, index=False, sheet_name="Cumulative")
+                    pivot.to_excel(writer, index=False, sheet_name="Cumulative")
                     ws = writer.sheets["Cumulative"]
 
                     from openpyxl.styles import PatternFill, Font
                     fill_map = {
                         "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
-                        "Not Yet": PatternFill(start_color="FF0000", fill_type="solid"),
-                        "Steer": PatternFill(start_color="FFA500", fill_type="solid"),
-                        "Prompt": PatternFill(start_color="FFD700", fill_type="solid"),
-                        "Back up": PatternFill(start_color="90EE90", fill_type="solid"),
-                        "Auto": PatternFill(start_color="008000", fill_type="solid"),
+                        "Not Yet":  PatternFill(start_color="FF0000", fill_type="solid"),
+                        "Steer":    PatternFill(start_color="FFA500", fill_type="solid"),
+                        "Prompt":   PatternFill(start_color="FFD700", fill_type="solid"),
+                        "Back up":  PatternFill(start_color="90EE90", fill_type="solid"),
+                        "Auto":     PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    # Apply colors to step cells in Excel
-                    start_col = 6  # after date, attending, case_id, complexity, O-score
+                    start_col = 6  # first step column in Excel (after meta cols)
                     for row in ws.iter_rows(
-                        min_row=2,
-                        max_row=ws.max_row,
-                        min_col=start_col,
-                        max_col=5 + len(ordered_steps)
+                        min_row=2, max_row=ws.max_row,
+                        min_col=start_col, max_col=5 + len(ordered_steps)
                     ):
                         for cell in row:
                             if cell.value in fill_map:
