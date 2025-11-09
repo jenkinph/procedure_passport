@@ -8,6 +8,11 @@ import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
 
+st.set_page_config(
+    page_title="Procedure Passport",
+    layout="wide"
+)
+
 # --- Session State Init ---
 # -----------------------------
 # SESSION STATE
@@ -930,9 +935,16 @@ elif st.session_state["page"] == "cumulative":
                         return "background-color: green; color: white"
                     return ""
 
-                st.dataframe(
-                    table_df.style.applymap(color_map, subset=ordered_steps),
-                    use_container_width=True
+                # Build a screenshot-friendly table:
+                #   - drop case_id (too long for screenshots)
+                #   - keep date + attending + complexity + overall performance + steps
+                screenshot_df = display_df.drop(columns=["case_id"], errors="ignore")
+
+                st.table(
+                    screenshot_df.style.applymap(color_map, subset=ordered_steps)
+                )
+                st.caption(
+                    "Top rows show summary; table is sized to fit on screen for easy screenshots."
                 )
 
                 # ---------- Excel export (Ralph-style layout) ----------
