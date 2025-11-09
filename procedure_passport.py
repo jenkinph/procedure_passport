@@ -759,6 +759,7 @@ elif st.session_state["page"] == "cumulative":
     st.title("📊 Cumulative Dashboard")
 
     resident = st.session_state.get("resident")
+    resident_name = st.session_state.get("resident_name", "")
 
     # --- If not logged in ---
     if not resident:
@@ -781,7 +782,8 @@ elif st.session_state["page"] == "cumulative":
         scores_df = read_sheet_df(
             SHEET_SCORES,
             expected_cols=[
-                "case_id", "step_id", "rating", "rating_num", "case_complexity", "overall_performance"
+                "case_id", "step_id", "rating", "rating_num",
+                "case_complexity", "overall_performance"
             ]
         )
         steps_df = read_sheet_df(
@@ -852,7 +854,11 @@ elif st.session_state["page"] == "cumulative":
                 )
 
                 # --- Filter to selected procedure ---
-                proc_data = merged[merged["case_procedure_id"] == selected_proc]
+                proc_data = merged[merged["case_procedure_id"] == selected_proc].copy()
+
+                # --- Order by date (most recent first) ---
+                proc_data["date_dt"] = pd.to_datetime(proc_data["date"])
+                proc_data = proc_data.sort_values("date_dt", ascending=False)
 
                 # --- Order steps correctly ---
                 ordered_steps = (
@@ -861,7 +867,7 @@ elif st.session_state["page"] == "cumulative":
                     .tolist()
                 )
 
-                # --- Pivot data for visualization ---
+                # --- Pivot data: one row per case, columns = steps ---
                 pivot = proc_data.pivot_table(
                     index=["date", "attending_name", "case_id",
                            "case_complexity", "overall_performance"],
@@ -871,14 +877,44 @@ elif st.session_state["page"] == "cumulative":
                 ).reset_index()
 
                 # --- Ensure consistent column order ---
-                cols = ["date", "attending_name", "case_id",
-                        "case_complexity", "overall_performance"] + ordered_steps
                 for c in ordered_steps:
                     if c not in pivot.columns:
                         pivot[c] = pd.NA
-                pivot = pivot[cols]
+                pivot = pivot[
+                    ["date", "attending_name", "case_id",
+                     "case_complexity", "overall_performance"] + ordered_steps
+                ]
 
-                # --- Color map for visualization ---
+                # ---------- “Most Recent” and “Best” summary rows ----------
+                # Most recent = first row of pivot (since we sorted desc by date)
+                if not pivot.empty:
+                    most_recent_row = pivot.iloc[0].copy()
+                    most_recent_row["date"] = "Most recent"
+                    most_recent_row["attending_name"] = ""
+                    most_recent_row["case_id"] = ""
+                    most_recent_row["case_complexity"] = ""
+                    most_recent_row["overall_performance"] = ""
+
+                    # Best row: for each step, take highest rating_num
+                    best_row = most_recent_row.copy()
+                    best_row["date"] = "Best"
+                    for step in ordered_steps:
+                        col = pivot[step]
+                        if col.notna().any():
+                            nums = col.map(RATING_TO_NUM).fillna(-1)
+                            idx = nums.idxmax()
+                            best_row[step] = col.loc[idx]
+                        else:
+                            best_row[step] = pd.NA
+
+                    table_df = pd.concat(
+                        [pd.DataFrame([most_recent_row, best_row]), pivot],
+                        ignore_index=True
+                    )
+                else:
+                    table_df = pivot.copy()
+
+                # ---------- On-screen view ----------
                 def color_map(val):
                     if val == "Not Done":
                         return "background-color: lightgray; color: black"
@@ -894,16 +930,40 @@ elif st.session_state["page"] == "cumulative":
                         return "background-color: green; color: white"
                     return ""
 
-                st.dataframe(pivot.style.applymap(color_map, subset=ordered_steps),
-                             use_container_width=True)
+                st.dataframe(
+                    table_df.style.applymap(color_map, subset=ordered_steps),
+                    use_container_width=True
+                )
 
-                # --- Export to Excel with colors ---
+                # ---------- Excel export (Ralph-style layout) ----------
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    pivot.to_excel(writer, index=False, sheet_name="Cumulative")
+                    table_df.to_excel(writer, index=False, sheet_name="Cumulative")
                     ws = writer.sheets["Cumulative"]
 
-                    from openpyxl.styles import PatternFill, Font
+                    from openpyxl.styles import PatternFill, Font, Alignment
+
+                    # Title row with resident + procedure
+                    ws.insert_rows(1)
+                    title = f"{resident_name or resident} – {procs_map.get(selected_proc, selected_proc)} Steps"
+                    ws["A1"] = title
+                    ws.merge_cells(start_row=1, start_column=1,
+                                   end_row=1, end_column=ws.max_column)
+                    ws["A1"].font = Font(size=14, bold=True)
+                    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+                    # Rotate step headers (columns 6+; header row is now 2)
+                    header_row_idx = 2
+                    for col_idx, cell in enumerate(ws[header_row_idx], start=1):
+                        if col_idx >= 6:
+                            cell.alignment = Alignment(
+                                text_rotation=90,
+                                horizontal="center",
+                                vertical="bottom",
+                                wrap_text=True
+                            )
+
+                    # Color map for rating cells
                     fill_map = {
                         "Not Done": PatternFill(start_color="D3D3D3", fill_type="solid"),
                         "Not Yet": PatternFill(start_color="FF0000", fill_type="solid"),
@@ -913,16 +973,31 @@ elif st.session_state["page"] == "cumulative":
                         "Auto": PatternFill(start_color="008000", fill_type="solid"),
                     }
 
-                    # Apply colors to step cells
-                    start_col = 6
+                    # Apply colors to step cells (data rows only)
+                    start_col = 6  # first step column
                     for row in ws.iter_rows(
-                        min_row=2, max_row=ws.max_row,
-                        min_col=start_col, max_col=5 + len(ordered_steps)
+                        min_row=3,  # skip title + header + summary labels row
+                        max_row=ws.max_row,
+                        min_col=start_col,
+                        max_col=5 + len(ordered_steps)
                     ):
                         for cell in row:
                             if cell.value in fill_map:
                                 cell.fill = fill_map[cell.value]
-                                cell.font = Font(color="FFFFFF") if cell.value in ["Not Yet", "Auto"] else Font(color="000000")
+
+                    # Simple rating legend under the table
+                    legend_start_row = ws.max_row + 2
+                    ws.cell(row=legend_start_row, column=1, value="Legend (Ratings):").font = Font(bold=True)
+
+                    r = legend_start_row + 1
+                    for label, fill in fill_map.items():
+                        c_label = ws.cell(row=r, column=1, value=label)
+                        c_color = ws.cell(row=r, column=2, value="")
+                        c_color.fill = fill
+                        r += 1
+
+                    # Freeze panes below headers and to the right of date/attending
+                    ws.freeze_panes = "C4"
 
                 excel_data = output.getvalue()
                 st.download_button(
