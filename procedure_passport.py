@@ -892,20 +892,19 @@ elif st.session_state["page"] == "cumulative":
                 ]
 
                 # -------------------------------------------------
-                # Nicely formatted, screenshot-friendly heatmap
+                # Screenshot-friendly table (keep date/attending)
                 # -------------------------------------------------
                 st.markdown(
                     "### On-screen view (for screenshots)\n"
-                    "Most recent cases are at the top. Zoom out and screenshot this grid 📸"
+                    "Most recent cases are at the top. Zoom out on your phone and screenshot this grid 📸"
                 )
 
-                # Sort with most recent first
-                screenshot_df = pivot.sort_values("date", ascending=False).copy()
+                display_df = pivot.sort_values("date", ascending=False).copy()
 
-                # Drop case_id from this view (still used in Excel)
-                screenshot_df = screenshot_df.drop(columns=["case_id"])
+                # If you don't want case_id shown on screen, drop here (still in pivot for Excel)
+                display_df = display_df.drop(columns=["case_id"], errors="ignore")
 
-                # Color maps
+                # --- Color maps ---
                 step_color_map = {
                     "Not Done":  "#D3D3D3",
                     "Not Yet":   "#FF4D4D",
@@ -932,58 +931,62 @@ elif st.session_state["page"] == "cumulative":
                 def color_steps(val):
                     if pd.isna(val):
                         return ""
-                    return f"background-color: {step_color_map.get(val, '')}"
+                    return f"background-color: {step_color_map.get(val, '')}; color: transparent;"
 
                 def color_complexity(val):
                     if pd.isna(val):
                         return ""
-                    return f"background-color: {complexity_color_map.get(val, '')}"
+                    return f"background-color: {complexity_color_map.get(val, '')}; color: transparent;"
 
                 def color_o_score(val):
-                    if not isinstance(val, str):
+                    if pd.isna(val):
                         return ""
-                    key = val.split("-")[0].strip()  # "3 - Prompt" → "3"
-                    return f"background-color: {o_score_color_map.get(key, '')}"
+                    if isinstance(val, str):
+                        key = val.split("-")[0].strip()  # "3 - Prompt" -> "3"
+                    else:
+                        key = str(int(val))
+                    return f"background-color: {o_score_color_map.get(key, '')}; color: transparent;"
 
-                # Build styler
-                styled = screenshot_df.style
+                # Build Styler
+                styled = display_df.style
 
-                # Apply colors to step cells
-                styled = styled.applymap(
-                    color_steps,
-                    subset=ordered_steps
-                )
+                # Steps → colored blocks only
+                styled = styled.applymap(color_steps, subset=ordered_steps)
+                # Complexity → colored block only
+                if "case_complexity" in display_df.columns:
+                    styled = styled.applymap(color_complexity, subset=["case_complexity"])
+                # O-score → colored block only
+                if "overall_performance" in display_df.columns:
+                    styled = styled.applymap(color_o_score, subset=["overall_performance"])
 
-                # Apply colors to complexity / O-score columns
-                styled = styled.applymap(
-                    color_complexity,
-                    subset=["case_complexity"]
-                )
-                styled = styled.applymap(
-                    color_o_score,
-                    subset=["overall_performance"]
-                )
-
-                # Hide the index
+                # Hide the index so first visible col is Date
                 styled = styled.hide(axis="index")
 
-                # Make metadata columns a bit wider; step columns narrow
+                # Column width + wrapping:
+                # - Date & Attending: wider, no wrap
+                # - Complexity / O-score: medium, centered
+                # - Steps: narrow, header wraps, body is small colored squares
                 styled = styled.set_properties(
                     subset=["date", "attending_name"],
                     **{"min-width": "120px", "white-space": "nowrap"}
-                ).set_properties(
-                    subset=["case_complexity", "overall_performance"],
-                    **{"min-width": "90px", "text-align": "center"}
-                ).set_properties(
+                )
+                meta_cols = [c for c in ["case_complexity", "overall_performance"] if c in display_df.columns]
+                if meta_cols:
+                    styled = styled.set_properties(
+                        subset=meta_cols,
+                        **{"min-width": "60px", "text-align": "center"}
+                    )
+                styled = styled.set_properties(
                     subset=ordered_steps,
                     **{
-                        "min-width": "36px",
-                        "max-width": "36px",
-                        "text-align": "center"
+                        "min-width": "40px",
+                        "max-width": "40px",
+                        "text-align": "center",
+                        "padding": "2px",
                     }
                 )
 
-                # Table-level styles (theme-aware via CSS vars)
+                # Header styles: wrap long step names at the top
                 table_styles = [
                     {
                         "selector": "table",
@@ -1005,49 +1008,16 @@ elif st.session_state["page"] == "cumulative":
                         "props": [
                             ("text-align", "center"),
                             ("vertical-align", "bottom"),
-                            ("font-weight", "600"),
+                            ("white-space", "normal"),
+                            ("word-wrap", "break-word"),
+                            ("max-width", "120px"),
                         ],
                     },
                 ]
 
-                # Make step headers vertical & narrow
-                # We target their column indices in the styler
-                all_cols = list(screenshot_df.columns)
-                for idx, col_name in enumerate(all_cols):
-                    if col_name in ordered_steps:
-                        table_styles.append(
-                            {
-                                "selector": f"th.col_heading.level0.col{idx}",
-                                "props": [
-                                    ("writing-mode", "vertical-rl"),
-                                    ("text-orientation", "mixed"),
-                                    ("white-space", "nowrap"),
-                                    ("font-size", "0.75rem"),
-                                    ("padding", "4px 2px"),
-                                ],
-                            }
-                        )
-
-                # Hide text for complexity / O-score if you want color-only:
-                # (comment this block out if you decide you *do* want text)
-                comp_idx = all_cols.index("case_complexity")
-                o_idx = all_cols.index("overall_performance")
-                table_styles.append(
-                    {
-                        "selector": f"td.col{comp_idx}",
-                        "props": [("color", "transparent")],
-                    }
-                )
-                table_styles.append(
-                    {
-                        "selector": f"td.col{o_idx}",
-                        "props": [("color", "transparent")],
-                    }
-                )
-
                 styled = styled.set_table_styles(table_styles)
 
-                # Render as HTML so our CSS is respected
+                # Render the styled HTML table (keeps our CSS)
                 st.markdown(styled.to_html(), unsafe_allow_html=True)
 
                 # ------------- Legends -------------
