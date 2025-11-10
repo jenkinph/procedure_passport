@@ -892,16 +892,16 @@ elif st.session_state["page"] == "cumulative":
                 ]
 
                 # -------------------------------------------------
-                # Screenshot-friendly table (keep date/attending)
+                # Screenshot-friendly table: colored cells, text on left
                 # -------------------------------------------------
                 st.markdown(
                     "### On-screen view (for screenshots)\n"
-                    "Most recent cases are at the top. Zoom out on your phone and screenshot this grid 📸"
+                    "Most recent cases are at the top. Zoom out and screenshot this grid 📸"
                 )
 
                 display_df = pivot.sort_values("date", ascending=False).copy()
 
-                # If you don't want case_id shown on screen, drop here (still in pivot for Excel)
+                # Optionally hide case_id from on-screen view
                 display_df = display_df.drop(columns=["case_id"], errors="ignore")
 
                 # --- Color maps ---
@@ -915,17 +915,17 @@ elif st.session_state["page"] == "cumulative":
                 }
 
                 complexity_color_map = {
-                    "Straight Forward": "#C8E6C9",  # light green
-                    "Moderate":         "#FFF59D",  # light yellow
-                    "Complex":          "#FFAB91",  # light red/orange
+                    "Straight Forward": "#C8E6C9",
+                    "Moderate":         "#FFF59D",
+                    "Complex":          "#FFAB91",
                 }
 
                 o_score_color_map = {
-                    "1": "#FF4D4D",  # Not Yet
-                    "2": "#FF944D",  # Steer
-                    "3": "#FFD633",  # Prompt
-                    "4": "#99E699",  # Backup
-                    "5": "#33CC33",  # Auto
+                    "1": "#FF4D4D",
+                    "2": "#FF944D",
+                    "3": "#FFD633",
+                    "4": "#99E699",
+                    "5": "#33CC33",
                 }
 
                 def color_steps(val):
@@ -942,40 +942,39 @@ elif st.session_state["page"] == "cumulative":
                     if pd.isna(val):
                         return ""
                     if isinstance(val, str):
-                        key = val.split("-")[0].strip()  # "3 - Prompt" -> "3"
+                        key = val.split("-")[0].strip()
                     else:
                         key = str(int(val))
                     return f"background-color: {o_score_color_map.get(key, '')}; color: transparent;"
 
-                # Build Styler
+                # Build styler
                 styled = display_df.style
 
-                # Steps → colored blocks only
+                # Steps = colored boxes
                 styled = styled.applymap(color_steps, subset=ordered_steps)
-                # Complexity → colored block only
+
+                # Complexity / O-score = colored boxes
                 if "case_complexity" in display_df.columns:
                     styled = styled.applymap(color_complexity, subset=["case_complexity"])
-                # O-score → colored block only
                 if "overall_performance" in display_df.columns:
                     styled = styled.applymap(color_o_score, subset=["overall_performance"])
 
-                # Hide the index so first visible col is Date
+                # Hide index
                 styled = styled.hide(axis="index")
 
-                # Column width + wrapping:
-                # - Date & Attending: wider, no wrap
-                # - Complexity / O-score: medium, centered
-                # - Steps: narrow, header wraps, body is small colored squares
+                # Column widths
                 styled = styled.set_properties(
                     subset=["date", "attending_name"],
                     **{"min-width": "120px", "white-space": "nowrap"}
                 )
+
                 meta_cols = [c for c in ["case_complexity", "overall_performance"] if c in display_df.columns]
                 if meta_cols:
                     styled = styled.set_properties(
                         subset=meta_cols,
-                        **{"min-width": "60px", "text-align": "center"}
+                        **{"min-width": "70px", "text-align": "center"}
                     )
+
                 styled = styled.set_properties(
                     subset=ordered_steps,
                     **{
@@ -986,8 +985,8 @@ elif st.session_state["page"] == "cumulative":
                     }
                 )
 
-                # Header styles: wrap long step names at the top
-                table_styles = [
+                # Basic table styles
+                styled = styled.set_table_styles([
                     {
                         "selector": "table",
                         "props": [
@@ -1013,76 +1012,9 @@ elif st.session_state["page"] == "cumulative":
                             ("max-width", "120px"),
                         ],
                     },
-                ]
+                ])
 
-                styled = styled.set_table_styles(table_styles)
-
-                # Render the styled HTML table (keeps our CSS)
                 st.markdown(styled.to_html(), unsafe_allow_html=True)
-
-                # ------------- Legends -------------
-                st.markdown("#### Case Complexity Legend")
-                st.markdown(
-                    """
-<style>
-.legend-row {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}
-.legend-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid var(--secondary-background-color);
-}
-</style>
-<div class="legend-row">
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#C8E6C9;"></span>Straight Forward
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#FFF59D;"></span>Moderate
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#FFAB91;"></span>Complex
-  </span>
-</div>
-""",
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown("#### O-Score Legend")
-                st.markdown(
-                    """
-<div class="legend-row">
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#FF4D4D;"></span>1 – Not Yet
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#FF944D;"></span>2 – Steer
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#FFD633;"></span>3 – Prompt
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#99E699;"></span>4 – Backup
-  </span>
-  <span class="legend-item">
-    <span class="legend-swatch" style="background-color:#33CC33;"></span>5 – Auto
-  </span>
-</div>
-""",
-                    unsafe_allow_html=True,
-                )
 
                 # ------------- Excel export (same data) -------------
                 output = io.BytesIO()
@@ -1100,8 +1032,8 @@ elif st.session_state["page"] == "cumulative":
                         "Back up": "99E699",
                         "Auto": "33CC33",
                     }
-                    # Apply colors only to step cells in Excel
-                    start_col = 6  # 1-based: date, attending, case_id, complexity, O-score → first 5
+
+                    start_col = 6  # after date, attending, case_id, complexity, O-score
                     for row in ws.iter_rows(
                         min_row=2,
                         max_row=ws.max_row,
