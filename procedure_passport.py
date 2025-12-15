@@ -669,8 +669,6 @@ elif st.session_state["page"] == "start":
 
         st.code(magic_link, language='text')
 
-        st.button("📋 Copy Link to Clipboard", on_click=st.toast, args=("Link copied!",))
-
     # ---------------------------------------------
     # Navigation Buttons
     # ---------------------------------------------
