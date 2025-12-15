@@ -322,7 +322,10 @@ if st.session_state["page"] == "login":
             st.error("Please enter an email.")
         else:
             # ✅ Load residents directly from Google Sheets
-            residents = read_sheet_df("residents", expected_cols=["email","name","created_at"])
+            residents = read_sheet_df(
+                "residents",
+                expected_cols=["email", "name", "specialty_id", "created_at"]
+                )
 
             # 🔹 Allow login for admins or registered residents
             if email in ADMINS:
