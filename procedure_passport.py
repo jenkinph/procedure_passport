@@ -690,23 +690,23 @@ elif st.session_state["page"] == "start":
 # PAGE: ASSESSMENT
 # -----------------------------
 elif st.session_state["page"] == "assessment":
-    # ✅ Set user context
+    # Set user context
     is_admin = st.session_state["resident"] in ADMINS
     is_attending_link = st.session_state.get("mode") == "attending"
 
     st.title("Assessment")
 
-    # 🔙 Back to Home (residents only)
+    # Back to Home for residents
     if not is_admin and not is_attending_link:
         if st.button("🏠 Back to Home"):
             go_next("dashboard")
 
-    # 📦 Load references
+    # Load references
     _, _, steps_df, _ = load_refs()
     procedure_id = st.session_state["procedure_id"]
     specialty_id = st.session_state["specialty_id"]
 
-    # ✅ Only filter by procedure_id (not specialty_id)
+    # Filter only by procedure_id
     steps = (
         steps_df[steps_df["procedure_id"] == procedure_id]
         .sort_values("step_order")
@@ -717,7 +717,7 @@ elif st.session_state["page"] == "assessment":
         st.stop()
 
     # -----------------------------
-    # 📌 Required: Case Complexity
+    # 📌 Case Complexity
     # -----------------------------
     COMPLEXITY_OPTIONS = [
         "— Make a selection —",
@@ -734,7 +734,7 @@ elif st.session_state["page"] == "assessment":
     st.session_state["case_complexity"] = case_complexity
 
     # -----------------------------
-    # 📋 Step-by-step assessment
+    # 🧩 Step-by-Step Assessment
     # -----------------------------
     st.markdown("### Step-Level Assessment")
 
@@ -765,7 +765,7 @@ elif st.session_state["page"] == "assessment":
         st.session_state["scores"][step_id] = selected
 
     # -----------------------------
-    # 🎯 Required: O-Score
+    # 🎯 Overall Performance
     # -----------------------------
     O_SCORE_OPTIONS = [
         "— Make a selection —",
@@ -793,7 +793,7 @@ elif st.session_state["page"] == "assessment":
     st.session_state["notes"] = notes
 
     # -----------------------------
-    # ✅ Submit
+    # ✅ Submit Button
     # -----------------------------
     if st.button("Finish →"):
         errors = []
@@ -807,8 +807,8 @@ elif st.session_state["page"] == "assessment":
         if errors:
             for error in errors:
                 st.error(error)
-            st.stop()
-
+        else:
+            # Save case
             st.session_state["current_case_id"] = save_case(
                 resident_email=st.session_state["resident"],
                 date=st.session_state["date"],
@@ -821,12 +821,11 @@ elif st.session_state["page"] == "assessment":
                 notes=notes,
             )
 
-            # Automatically navigate only for residents
+            # Navigation logic
             if not is_admin and not is_attending_link:
                 go_next("dashboard")
             else:
                 st.success("✅ Assessment submitted.")
-
 # -------------------
 # PAGE: COMMENTS DASHBOARD
 # -------------------
