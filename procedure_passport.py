@@ -690,36 +690,36 @@ if not is_admin:
 # PAGE: ASSESSMENT
 # -----------------------------
 elif st.session_state["page"] == "assessment":
-    st.title("Assessment")
-
-    # -----------------------------
-    # User context
-    # -----------------------------
+    # ✅ Define user context
     is_admin = st.session_state["resident"] in ADMINS
     is_attending_link = st.session_state.get("mode") == "attending"
 
-    # Resident-only navigation
+    st.title("Assessment")
+
+    # 🔙 Back to Home (only for logged-in residents)
     if not is_admin and not is_attending_link:
         if st.button("🏠 Back to Home"):
-            go_next("home")
+            go_next("dashboard")
 
-    # -----------------------------
-    # Load procedure steps
-    # -----------------------------
+    # 📦 Load references
     _, _, steps_df, _ = load_refs()
     procedure_id = st.session_state["procedure_id"]
+    specialty_id = st.session_state["specialty_id"]
 
     steps = (
-        steps_df[steps_df["procedure_id"] == procedure_id]
+        steps_df[
+            (steps_df["procedure_id"] == procedure_id)
+            & (steps_df["specialty_id"] == specialty_id)
+        ]
         .sort_values("step_order")
     )
 
     if steps.empty:
-        st.error("No steps are defined for this procedure.")
+        st.error("No steps found for this procedure.")
         st.stop()
 
     # -----------------------------
-    # Required: Case Complexity
+    # 📌 Required: Case Complexity
     # -----------------------------
     COMPLEXITY_OPTIONS = [
         "— Make a selection —",
@@ -728,19 +728,15 @@ elif st.session_state["page"] == "assessment":
         "Complex",
     ]
 
-    current_complexity = st.session_state.get("case_complexity", "— Make a selection —")
-
     case_complexity = st.selectbox(
         "Case Complexity *",
         COMPLEXITY_OPTIONS,
-        index=COMPLEXITY_OPTIONS.index(current_complexity)
-        if current_complexity in COMPLEXITY_OPTIONS else 0,
+        index=0,
     )
-
     st.session_state["case_complexity"] = case_complexity
 
     # -----------------------------
-    # Step-level ratings
+    # 📋 Step-by-step assessment
     # -----------------------------
     st.markdown("### Step-Level Assessment")
 
@@ -761,17 +757,17 @@ elif st.session_state["page"] == "assessment":
         step_id = row["step_id"]
         step_name = row["step_name"]
 
-        st.session_state["scores"][step_id] = st.selectbox(
+        selected = st.selectbox(
             step_name,
             RATING_OPTIONS,
-            index=RATING_OPTIONS.index(
-                st.session_state["scores"].get(step_id, "Not Assessed")
-            ),
+            index=RATING_OPTIONS.index("Not Assessed"),
             key=f"score_{step_id}",
         )
 
+        st.session_state["scores"][step_id] = selected
+
     # -----------------------------
-    # Required: Overall O-Score
+    # 🎯 Required: O-Score
     # -----------------------------
     O_SCORE_OPTIONS = [
         "— Make a selection —",
@@ -782,27 +778,24 @@ elif st.session_state["page"] == "assessment":
         "5 - Auto",
     ]
 
-    current_o_score = st.session_state.get("overall_performance", "— Make a selection —")
-
     overall_performance = st.selectbox(
         "Overall Performance (O-Score) *",
         O_SCORE_OPTIONS,
-        index=O_SCORE_OPTIONS.index(current_o_score)
-        if current_o_score in O_SCORE_OPTIONS else 0,
+        index=0,
     )
-
     st.session_state["overall_performance"] = overall_performance
 
     # -----------------------------
-    # Optional comments
+    # 📝 Notes (optional)
     # -----------------------------
-    st.session_state["notes"] = st.text_area(
+    notes = st.text_area(
         "Comments / Feedback (optional)",
         value=st.session_state.get("notes", ""),
     )
+    st.session_state["notes"] = notes
 
     # -----------------------------
-    # Validation + Submit
+    # ✅ Submit
     # -----------------------------
     if st.button("Finish →"):
         errors = []
@@ -814,58 +807,24 @@ elif st.session_state["page"] == "assessment":
             errors.append("Please select an overall O-Score.")
 
         if errors:
-            for e in errors:
-                st.error(e)
+            for error in errors:
+                st.error(error)
             st.stop()
 
-        # Save case
+        # Example: Call your save function (you can replace this as needed)
         st.session_state["current_case_id"] = save_case(
             resident_email=st.session_state["resident"],
             date=st.session_state["date"],
-            specialty_id=st.session_state["specialty_id"],
-            procedure_id=st.session_state["procedure_id"],
+            specialty_id=specialty_id,
+            procedure_id=procedure_id,
             attending_id=st.session_state["attending_id"],
             scores_dict=st.session_state["scores"],
             case_complexity=case_complexity,
             overall_performance=overall_performance,
-            notes=st.session_state["notes"],
+            notes=notes,
         )
 
         go_next("dashboard")
-# -----------------------------
-# PAGE: CASE DASHBOARD
-# -----------------------------
-elif st.session_state["page"] == "dashboard":
-    _, _, steps_df, _ = load_refs()
-    steps = steps_df[steps_df["procedure_id"]==st.session_state["procedure_id"]].sort_values("step_order")
-
-    st.title("Case Dashboard")
-    data = []
-    for _, row in steps.iterrows():
-        step_id = row["step_id"]
-        step_name = row["step_name"]
-        rating = st.session_state["scores"].get(step_id, "")
-        data.append({"Step": step_name, "Rating": rating})
-    df = pd.DataFrame(data)
-    st.dataframe(style_df(df,"Rating"))
-
-    if st.session_state.get("notes",""):
-        st.write("**Comments:**")
-        st.info(st.session_state["notes"])
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("← Back to Assessment"):
-            go_back("assessment")
-
-    with col2:
-        if st.button("🏠 Back to Home"):
-            go_next("home")
-
-    with col3:
-        if st.button("➕ Start New Assessment"):
-            go_next("start")
 
 # -------------------
 # PAGE: COMMENTS DASHBOARD
