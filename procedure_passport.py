@@ -408,14 +408,28 @@ elif st.session_state["page"] == "admin":
     # Add new resident
     new_res_email = st.text_input("New resident email")
     new_res_name = st.text_input("Resident name")
-    if st.button("Add resident"):
-        if new_res_email:
-            ensure_resident(new_res_email, new_res_name)
-            st.success(f"Added {new_res_email}")
-            st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-            time.sleep(1)              # ⏳ lets Google confirm the write
-            st.rerun()    # 🔁 clean restart of the app
 
+    spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+    spec_name_to_id = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
+
+    new_res_spec = st.selectbox(
+    "Resident specialty",
+    options=list(spec_name_to_id.keys())
+    )
+
+    if st.button("Add resident"):
+        if new_res_email and new_res_spec:
+            ensure_resident(
+                new_res_email,
+                new_res_name,
+                spec_name_to_id[new_res_spec]
+            )
+            st.success(f"Added {new_res_email}")
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Please enter email and select a specialty.")
     # Delete resident
     if not residents.empty:
         del_res_email = st.selectbox("Select resident to delete", residents["email"])
@@ -579,8 +593,13 @@ elif st.session_state["page"] == "start":
     spec_df, proc_df, steps_df, atnd_df = load_refs()
 
     spec_map = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
-    specialty = st.selectbox("Specialty", list(spec_map.keys()))
-    st.session_state["specialty_id"] = spec_map[specialty]
+    id_to_name = dict(zip(spec_df["specialty_id"], spec_df["specialty_name"]))
+
+    resident_spec_id = st.session_state.get("specialty_id")
+    resident_spec_name = id_to_name.get(resident_spec_id, "Unknown Specialty")
+
+    st.markdown(f"**Specialty:** {resident_spec_name}")
+    st.session_state["specialty_id"] = resident_spec_id
 
     procs = proc_df[proc_df["specialty_id"]==st.session_state["specialty_id"]]
     proc_map = dict(zip(procs["procedure_name"], procs["procedure_id"]))
