@@ -628,41 +628,51 @@ elif st.session_state["page"] == "start":
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
+# -----------------------------
+# PAGE: ASSESSMENT
+# -----------------------------
 elif st.session_state["page"] == "assessment":
     _, _, steps_df, _ = load_refs()
-    steps = steps_df[steps_df["procedure_id"]==st.session_state["procedure_id"]].sort_values("step_order")
+    steps = steps_df[steps_df["procedure_id"] == st.session_state["procedure_id"]].sort_values("step_order")
 
     st.title("Assessment")
 
-    # Step ratings
-    for _, row in steps.iterrows():
-        step_id = row["step_id"]
-        step_name = row["step_name"]
-        st.session_state["scores"][step_id] = st.radio(
-            step_name,
-            RATING_OPTIONS,
-            horizontal=True,
-            key=f"score_{step_id}"
-        )
-
-    # Case Complexity dropdown
+    # 🔁 Move case complexity to the top
     st.session_state["case_complexity"] = st.selectbox(
         "Case Complexity",
         ["Straight Forward", "Moderate", "Complex"],
-        index=["Straight Forward", "Moderate", "Complex"].index(st.session_state.get("case_complexity","Straight Forward"))
+        index=["Straight Forward", "Moderate", "Complex"].index(
+            st.session_state.get("case_complexity", "Straight Forward")
+        )
     )
 
-    # Overall Performance O-Score
+    # 🔁 Step ratings (dropdowns for each step)
+    for _, row in steps.iterrows():
+        step_id = row["step_id"]
+        step_name = row["step_name"]
+        st.session_state["scores"][step_id] = st.selectbox(
+            step_name,
+            RATING_OPTIONS,
+            index=RATING_OPTIONS.index(
+                st.session_state["scores"].get(step_id, "Not Done")
+            ),
+            key=f"score_{step_id}"
+        )
+
+    # ✅ Overall Performance O-Score (can also convert to dropdown if desired)
     st.session_state["overall_performance"] = st.radio(
         "Overall Performance (O-Score)",
         ["1 - Not Yet", "2 - Steer", "3 - Prompt", "4 - Backup", "5 - Auto"],
         horizontal=True,
-        index=["1 - Not Yet", "2 - Steer", "3 - Prompt", "4 - Backup", "5 - Auto"].index(st.session_state.get("overall_performance","3 - Prompt"))
+        index=["1 - Not Yet", "2 - Steer", "3 - Prompt", "4 - Backup", "5 - Auto"].index(
+            st.session_state.get("overall_performance", "3 - Prompt")
+        )
     )
 
-    # Comments section
+    # ✅ Free-text comments
     st.session_state["notes"] = st.text_area("Comments / Feedback")
 
+    # Navigation buttons
     if st.button("← Back to Start"):
         go_back("start")
 
@@ -676,10 +686,9 @@ elif st.session_state["page"] == "assessment":
             st.session_state["scores"],
             case_complexity=st.session_state["case_complexity"],
             overall_performance=st.session_state["overall_performance"],
-            notes=st.session_state.get("notes","")
+            notes=st.session_state.get("notes", "")
         )
         go_next("dashboard")
-
 # -----------------------------
 # PAGE: CASE DASHBOARD
 # -----------------------------
