@@ -823,7 +823,7 @@ elif st.session_state["page"] == "assessment":
 
             if not is_admin and not is_attending_link:
                 st.session_state["page"] = "dashboard"
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.success("✅ Assessment submitted.")
 # -------------------
