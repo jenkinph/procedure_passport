@@ -331,11 +331,12 @@ if st.session_state["page"] == "login":
                 st.session_state["page"] = "admin"
                 st.rerun()
             elif email in residents["email"].values:
+                resident_row = residents.loc[residents["email"] == email].iloc[0]
+
                 st.session_state["resident"] = email
-                st.session_state["resident_name"] = (
-                    residents.loc[residents["email"] == email, "name"].values[0]
-                )
-                st.sesson_state["specialty_id"] = resident_row["specialty_id"]
+                st.session_state["resident_name"] = resident_row["name"]
+                st.session_state["specialty_id"] = resident_row["specialty_id"]
+
                 st.session_state["page"] = "home"
                 st.rerun()
             else:
