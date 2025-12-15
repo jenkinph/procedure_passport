@@ -828,84 +828,72 @@ elif st.session_state["page"] == "dashboard":
     if st.button("➕ Start New Assessment"):
         st.session_state["page"] = "start"
         st.rerun()
-# -------------------
-# PAGE: COMMENTS DASHBOARD
-# -------------------
-elif st.session_state["page"] == "comments":
-    st.title("💬 Comments Dashboard")
+        
+# -----------------------------
+# PAGE: CASE DASHBOARD
+# -----------------------------
+elif st.session_state["page"] == "dashboard":
+    st.title("📊 Case Dashboard")
 
-    resident = st.session_state.get("resident")
+    resident_email = st.session_state.get("resident")
+    if not resident_email:
+        st.error("No resident logged in.")
+        st.stop()
 
-    if not resident:
-        st.error("⚠️ No resident logged in. Please log in first.")
-        if st.button("⬅️ Back to Home"):
-            st.session_state["page"] = "home"
-            st.cache_data.clear()
-            time.sleep(1)
-            st.rerun()
-    else:
-        # --- Load relevant sheets ---
-        cases_df = read_sheet_df(
-            SHEET_CASES,
-            expected_cols=[
-                "case_id", "resident_email", "date", "specialty_id", "procedure_id",
-                "attending_id", "notes", "case_complexity", "overall_performance"
-            ]
-        )
-        procs_df = read_sheet_df(
-            SHEET_PROCEDURES,
-            expected_cols=["procedure_id", "procedure_name", "specialty_id"]
-        )
-        atnds_df = read_sheet_df(
-            SHEET_ATTENDINGS,
-            expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
-        )
+    # Load references and cases
+    spec_df, proc_df, steps_df, atnd_df = load_refs()
 
-        # --- Filter to this resident ---
-        res_cases = cases_df[cases_df["resident_email"] == resident]
-        if res_cases.empty:
-            st.info("No comments recorded yet.")
-            if st.button("⬅️ Back to Home"):
-                go_next("home")
-        else:
-            # --- Merge in human-readable labels ---
-            merged = (
-                res_cases.merge(procs_df, on="procedure_id", how="left")
-                         .merge(atnds_df, on="attending_id", how="left")
-            )
+    cases_df = read_sheet_df(SHEET_CASES, expected_cols=[
+        "case_id", "resident_email", "date", "specialty_id", "procedure_id",
+        "attending_id", "notes", "case_complexity", "overall_performance"
+    ])
 
-            # --- Clean up columns ---
-            merged = merged.rename(columns={
-                "date": "Date",
-                "procedure_name": "Procedure",
-                "attending_name": "Attending",
-                "case_complexity": "Case Complexity",
-                "overall_performance": "Overall Performance",
-                "notes": "Comments"
-            })
+    proc_map = dict(zip(proc_df["procedure_id"], proc_df["procedure_name"]))
 
-            merged = merged[[
-                "Date", "Procedure", "Attending",
-                "Case Complexity", "Overall Performance", "Comments"
-            ]].sort_values("Date", ascending=False)
+    # Filter to this resident
+    df = cases_df[cases_df["resident_email"] == resident_email].copy()
 
-            st.dataframe(merged, use_container_width=True)
+    if df.empty:
+        st.info("No completed assessments yet.")
+        st.stop()
 
-            # --- Excel Export ---
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                merged.to_excel(writer, index=False, sheet_name="Comments")
+    # Format and clean
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["procedure_name"] = df["procedure_id"].map(proc_map)
+    df = df.sort_values("date", ascending=False)
 
-            excel_data = output.getvalue()
-            st.download_button(
-                label="📥 Download Comments as Excel",
-                data=excel_data,
-                file_name=f"{resident}_comments_dashboard.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+    # Filter by procedure
+    all_procs = df["procedure_name"].dropna().unique().tolist()
+    selected_proc = st.selectbox("Filter by Procedure", ["All"] + sorted(all_procs))
 
-            if st.button("⬅️ Back to Home"):
-                go_next("home")
+    if selected_proc != "All":
+        df = df[df["procedure_name"] == selected_proc]
+
+    # Displayable dataframe
+    display_df = df.rename(columns={
+        "date": "Date",
+        "procedure_name": "Procedure",
+        "case_complexity": "Complexity",
+        "overall_performance": "O-SCORE",
+        "notes": "Comments"
+    })[["Date", "Procedure", "Complexity", "O-SCORE", "Comments"]]
+
+    st.dataframe(display_df, use_container_width=True)
+
+    # Excel export
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        display_df.to_excel(writer, index=False, sheet_name="Cases")
+    st.download_button(
+        label="📥 Download Excel",
+        data=output.getvalue(),
+        file_name="procedure_passport_case_log.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # Navigation
+    if st.button("➕ Start New Assessment"):
+        go_next("start")
 
 # -------------------
 # PAGE: Cumulative Dashboard (Google Sheets only)
