@@ -668,232 +668,225 @@ elif st.session_state["page"] == "start":
         st.markdown("Copy and send this link to your attending so they can complete the evaluation:")
 
         st.code(magic_link, language='text')
-        st.caption("Use the 📋 icon above to copy the link.")
+
+        st.button("📋 Copy Link to Clipboard", on_click=st.toast, args=("Link copied!",))
 
     # ---------------------------------------------
     # Navigation Buttons
     # ---------------------------------------------
-    # Only show to logged-in residents
-    if not is_admin:
-        if st.button("🏠 Back to Home"):
-            go_next("dashboard")
-        
-        if st.button("← Back to Login"):
-            go_back("login")
+    if st.button("← Back to Login"):
+        go_back("login")
 
-        if st.button("Start Assessment →"):
-            st.session_state["scores"] = {}
-            st.session_state["notes"] = ""
-            go_next("assessment")
+    if st.button("Start Assessment →"):
+        st.session_state["scores"] = {}
+        st.session_state["notes"] = ""
+        go_next("assessment")
 
-#---- Assessment Page ---------
+# -----------------------------
+# PAGE: ASSESSMENT
+# -----------------------------
 
 elif st.session_state["page"] == "assessment":
-    st.title("📝 Assessment")
+    _, _, steps_df, _ = load_refs()
+    steps = steps_df[steps_df["procedure_id"] == st.session_state["procedure_id"]].sort_values("step_order")
 
-    spec_df, proc_df, steps_df, atnd_df = load_refs()
-    is_admin = st.session_state["resident"] in ADMINS
-    is_attending_link = st.session_state.get("attending_link", False)
+    st.title("Assessment")
 
-    # Back to Home (residents only)
-    if not is_admin and not is_attending_link:
-        if st.button("🏠 Back to Home"):
-            st.session_state["page"] = "dashboard"
-            st.rerun()
-
-    # Get procedure and specialty info
-    procedure_id = st.session_state.get("procedure_id")
-    specialty_id = st.session_state.get("specialty_id")
-    procedure_name = proc_df.loc[proc_df["procedure_id"] == procedure_id, "procedure_name"].values[0]
-
-    st.subheader(f"Procedure: {procedure_name}")
-
-    # CASE COMPLEXITY
-    case_complexity = st.selectbox(
-        "Case Complexity (required)",
-        options=["Make a selection", "Simple", "Moderate", "Complex"],
-        index=0
+    # 🔁 Case complexity first
+    st.session_state["case_complexity"] = st.selectbox(
+        "Case Complexity",
+        ["Straight Forward", "Moderate", "Complex"],
+        index=["Straight Forward", "Moderate", "Complex"].index(
+            st.session_state.get("case_complexity", "Straight Forward")
+        )
     )
 
-    # O-SCORE
-    o_score_options = ["Make a selection", "1 – Observed", "2 – Assisted", "3 – Performed with help", "4 – Performed independently", "N/A"]
-    overall_performance = st.selectbox(
-        "Overall Performance (O-SCORE, required)",
-        options=o_score_options,
-        index=0
-    )
+    # ✅ Ratings with Not Assessed at top
+    RATING_OPTIONS = ["Not Assessed", "Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
+    RATING_TO_NUM = {
+        "Not Assessed": -1,
+        "Not Done": 0,
+        "Not Yet": 1,
+        "Steer": 2,
+        "Prompt": 3,
+        "Back up": 4,
+        "Auto": 5
+    }
 
-    # PROCEDURE STEPS
-    step_data = steps_df[steps_df["procedure_id"] == procedure_id]
-    if step_data.empty:
-        st.warning("No steps found for this procedure.")
-        st.stop()
+    st.markdown("#### Step-Level Assessment")
 
-    st.subheader("Procedure Steps")
-    score_options = ["Not Assessed", "Not Done"] + [str(i) for i in range(1, 6)]
+    # 🔘 Optional: Mark all as Not Assessed
+    if st.button("↺ Mark All Steps as 'Not Assessed'"):
+        for _, row in steps.iterrows():
+            step_id = row["step_id"]
+            st.session_state["scores"][step_id] = "Not Assessed"
 
-    st.session_state["scores"] = {}
-    for _, row in step_data.iterrows():
+    # 🔁 Step dropdowns
+    for _, row in steps.iterrows():
         step_id = row["step_id"]
         step_name = row["step_name"]
-        score = st.selectbox(
-            f"{step_name}",
-            options=score_options,
+        st.session_state["scores"][step_id] = st.selectbox(
+            step_name,
+            RATING_OPTIONS,
+            index=RATING_OPTIONS.index(
+                st.session_state["scores"].get(step_id, "Not Assessed")
+            ),
             key=f"score_{step_id}"
         )
-        st.session_state["scores"][step_id] = score
 
-    # NOTES
-    notes = st.text_area("Feedback Notes (optional)", value=st.session_state.get("notes", ""))
-    st.session_state["notes"] = notes
+    # 🔁 O-Score as dropdown with no default
+    O_SCORE_OPTIONS = [
+        "— Make a selection —",
+        "1 - Not Yet",
+        "2 - Steer",
+        "3 - Prompt",
+        "4 - Backup",
+        "5 - Auto"
+    ]
+    current_o_score = st.session_state.get("overall_performance", "— Make a selection —")
+    st.session_state["overall_performance"] = st.selectbox(
+        "Overall Performance (O-Score)",
+        O_SCORE_OPTIONS,
+        index=O_SCORE_OPTIONS.index(current_o_score) if current_o_score in O_SCORE_OPTIONS else 0
+    )
 
-    # FINISH BUTTON
+    # 🔁 Comments section
+    st.session_state["notes"] = st.text_area("Comments / Feedback")
+
+    # 🔁 Warning if all steps are Not Assessed
+    if all(v == "Not Assessed" for v in st.session_state["scores"].values()):
+        st.warning("⚠️ All steps are currently marked as 'Not Assessed'.")
+
+    # 🔘 Navigation buttons
+    if st.button("← Back to Start"):
+        go_back("start")
+
     if st.button("Finish →"):
-        if case_complexity == "Make a selection":
-            st.warning("Please select a case complexity rating.")
-            st.stop()
-        if overall_performance == "Make a selection":
-            st.warning("Please select an overall O-SCORE rating.")
-            st.stop()
-
         st.session_state["current_case_id"] = save_case(
-            resident_email=st.session_state["resident"],
-            date=st.session_state["date"],
-            specialty_id=specialty_id,
-            procedure_id=procedure_id,
-            attending_id=st.session_state["attending_id"],
-            scores_dict=st.session_state["scores"],
-            case_complexity=case_complexity,
-            overall_performance=overall_performance,
-            notes=notes,
+            st.session_state["resident"],
+            st.session_state["date"],
+            st.session_state["specialty_id"],
+            st.session_state["procedure_id"],
+            st.session_state["attending_id"],
+            st.session_state["scores"],
+            case_complexity=st.session_state["case_complexity"],
+            overall_performance=st.session_state["overall_performance"],
+            notes=st.session_state.get("notes", "")
         )
-
-        if not is_admin and not is_attending_link:
-            st.session_state["page"] = "dashboard"
-            st.rerun()
-        else:
-            st.success("✅ Assessment submitted.")
-
-elif st.session_state["page"] == "dashboard":
-    st.title("📊 Case Dashboard")
-
-    # Load references
-    spec_df, proc_df, steps_df, atnd_df = load_refs()
-
-    # Verify user is assigned a specialty
-    specialty_id = st.session_state.get("specialty_id")
-    if not specialty_id:
-        st.error("No specialty assigned to your account.")
-        st.stop()
-
-    # Get name mappings
-    spec_map = dict(zip(spec_df["specialty_id"], spec_df["specialty_name"]))
-    proc_map = dict(zip(proc_df["procedure_id"], proc_df["procedure_name"]))
-    step_map = dict(zip(steps_df["step_id"], steps_df["step_name"]))
-    atnd_map = dict(zip(atnd_df["attending_id"], atnd_df["attending_name"]))
-
-    # Load resident's past cases
-    resident_email = st.session_state.get("resident")
-    df = load_case_data()
-    if df.empty or resident_email not in df["resident_email"].values:
-        st.info("No completed cases to display yet.")
-        st.stop()
-
-    df = df[df["resident_email"] == resident_email].copy()
-    df["date"] = pd.to_datetime(df["date"])
-    df.sort_values(by="date", ascending=False, inplace=True)
-
-    # Show summary
-    st.markdown(f"**Total Cases Logged:** {len(df)}")
-
-    # Allow filter by procedure
-    df["procedure_name"] = df["procedure_id"].map(proc_map)
-    selected_proc = st.selectbox("Filter by procedure", ["All"] + sorted(df["procedure_name"].unique()))
-    if selected_proc != "All":
-        df = df[df["procedure_name"] == selected_proc]
-
-    # Display table of recent cases
-    display_cols = ["date", "procedure_name", "case_complexity", "overall_performance", "notes"]
-    display_df = df[display_cols].rename(columns={
-        "date": "Date",
-        "procedure_name": "Procedure",
-        "case_complexity": "Complexity",
-        "overall_performance": "O-SCORE",
-        "notes": "Notes"
-    })
-
-    st.dataframe(display_df, use_container_width=True)
-
-    # Add button to return to Start Assessment
-    if st.button("➕ Start New Assessment"):
-        st.session_state["page"] = "start"
-        st.rerun()
-        
+        go_next("dashboard")
 # -----------------------------
 # PAGE: CASE DASHBOARD
 # -----------------------------
 elif st.session_state["page"] == "dashboard":
-    st.title("📊 Case Dashboard")
+    _, _, steps_df, _ = load_refs()
+    steps = steps_df[steps_df["procedure_id"]==st.session_state["procedure_id"]].sort_values("step_order")
 
-    resident_email = st.session_state.get("resident")
-    if not resident_email:
-        st.error("No resident logged in.")
-        st.stop()
+    st.title("Case Dashboard")
+    data = []
+    for _, row in steps.iterrows():
+        step_id = row["step_id"]
+        step_name = row["step_name"]
+        rating = st.session_state["scores"].get(step_id, "")
+        data.append({"Step": step_name, "Rating": rating})
+    df = pd.DataFrame(data)
+    st.dataframe(style_df(df,"Rating"))
 
-    # Load references and cases
-    spec_df, proc_df, steps_df, atnd_df = load_refs()
+    if st.session_state.get("notes",""):
+        st.write("**Comments:**")
+        st.info(st.session_state["notes"])
 
-    cases_df = read_sheet_df(SHEET_CASES, expected_cols=[
-        "case_id", "resident_email", "date", "specialty_id", "procedure_id",
-        "attending_id", "notes", "case_complexity", "overall_performance"
-    ])
+    col1, col2, col3 = st.columns(3)
 
-    proc_map = dict(zip(proc_df["procedure_id"], proc_df["procedure_name"]))
+    with col1:
+        if st.button("← Back to Assessment"):
+            go_back("assessment")
 
-    # Filter to this resident
-    df = cases_df[cases_df["resident_email"] == resident_email].copy()
+    with col2:
+        if st.button("🏠 Back to Home"):
+            go_next("home")
 
-    if df.empty:
-        st.info("No completed assessments yet.")
-        st.stop()
+    with col3:
+        if st.button("➕ Start New Assessment"):
+            go_next("start")
 
-    # Format and clean
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["procedure_name"] = df["procedure_id"].map(proc_map)
-    df = df.sort_values("date", ascending=False)
+# -------------------
+# PAGE: COMMENTS DASHBOARD
+# -------------------
+elif st.session_state["page"] == "comments":
+    st.title("💬 Comments Dashboard")
 
-    # Filter by procedure
-    all_procs = df["procedure_name"].dropna().unique().tolist()
-    selected_proc = st.selectbox("Filter by Procedure", ["All"] + sorted(all_procs))
+    resident = st.session_state.get("resident")
 
-    if selected_proc != "All":
-        df = df[df["procedure_name"] == selected_proc]
+    if not resident:
+        st.error("⚠️ No resident logged in. Please log in first.")
+        if st.button("⬅️ Back to Home"):
+            st.session_state["page"] = "home"
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
+    else:
+        # --- Load relevant sheets ---
+        cases_df = read_sheet_df(
+            SHEET_CASES,
+            expected_cols=[
+                "case_id", "resident_email", "date", "specialty_id", "procedure_id",
+                "attending_id", "notes", "case_complexity", "overall_performance"
+            ]
+        )
+        procs_df = read_sheet_df(
+            SHEET_PROCEDURES,
+            expected_cols=["procedure_id", "procedure_name", "specialty_id"]
+        )
+        atnds_df = read_sheet_df(
+            SHEET_ATTENDINGS,
+            expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
+        )
 
-    # Displayable dataframe
-    display_df = df.rename(columns={
-        "date": "Date",
-        "procedure_name": "Procedure",
-        "case_complexity": "Complexity",
-        "overall_performance": "O-SCORE",
-        "notes": "Comments"
-    })[["Date", "Procedure", "Complexity", "O-SCORE", "Comments"]]
+        # --- Filter to this resident ---
+        res_cases = cases_df[cases_df["resident_email"] == resident]
+        if res_cases.empty:
+            st.info("No comments recorded yet.")
+            if st.button("⬅️ Back to Home"):
+                go_next("home")
+        else:
+            # --- Merge in human-readable labels ---
+            merged = (
+                res_cases.merge(procs_df, on="procedure_id", how="left")
+                         .merge(atnds_df, on="attending_id", how="left")
+            )
 
-    st.dataframe(display_df, use_container_width=True)
+            # --- Clean up columns ---
+            merged = merged.rename(columns={
+                "date": "Date",
+                "procedure_name": "Procedure",
+                "attending_name": "Attending",
+                "case_complexity": "Case Complexity",
+                "overall_performance": "Overall Performance",
+                "notes": "Comments"
+            })
 
-    # Excel export
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        display_df.to_excel(writer, index=False, sheet_name="Cases")
-    st.download_button(
-        label="📥 Download Excel",
-        data=output.getvalue(),
-        file_name="procedure_passport_case_log.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+            merged = merged[[
+                "Date", "Procedure", "Attending",
+                "Case Complexity", "Overall Performance", "Comments"
+            ]].sort_values("Date", ascending=False)
 
-    # Navigation
-    if st.button("➕ Start New Assessment"):
-        go_next("start")
+            st.dataframe(merged, use_container_width=True)
+
+            # --- Excel Export ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                merged.to_excel(writer, index=False, sheet_name="Comments")
+
+            excel_data = output.getvalue()
+            st.download_button(
+                label="📥 Download Comments as Excel",
+                data=excel_data,
+                file_name=f"{resident}_comments_dashboard.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            if st.button("⬅️ Back to Home"):
+                go_next("home")
 
 # -------------------
 # PAGE: Cumulative Dashboard (Google Sheets only)
