@@ -689,6 +689,9 @@ elif st.session_state["page"] == "start":
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
+# -----------------------------
+# PAGE: ASSESSMENT
+# -----------------------------
 elif st.session_state["page"] == "assessment":
     # ✅ Define user context
     is_admin = st.session_state["resident"] in ADMINS
