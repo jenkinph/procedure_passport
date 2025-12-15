@@ -16,6 +16,17 @@ st.set_page_config(
     page_title="Procedure Passport",
     layout="wide"
 )
+from urllib.parse import urlparse, parse_qs
+
+query_params = st.query_params
+
+# Check for attending mode
+if query_params.get("mode") == "attending":
+    st.session_state["page"] = "attending_assessment"
+    st.session_state["resident"] = query_params.get("resident", "")
+    st.session_state["procedure_id"] = query_params.get("procedure_id", "")
+    st.session_state["specialty_id"] = query_params.get("specialty_id", "")
+    st.session_state["attending_name"] = query_params.get("attending_name", "")
 
 # --- Session State Init ---
 # -----------------------------
@@ -637,6 +648,32 @@ elif st.session_state["page"] == "start":
 
     st.session_state["date"] = st.date_input("Date", st.session_state["date"])
 
+    # ---------------------------------------------
+    # MAGIC LINK GENERATOR FOR RESIDENT TO SEND
+    # ---------------------------------------------
+    if not is_admin:
+        resident_email = st.session_state["resident"]
+        procedure_id = st.session_state["procedure_id"]
+        specialty_id = st.session_state["specialty_id"]
+
+        # Convert attending name to safe URL format
+        selected_attending_name = atnds[atnds["attending_id"] == st.session_state["attending_id"]]["attending_name"].values[0]
+        safe_attending = selected_attending_name.replace(" ", "_")
+
+        # Deployed Streamlit app URL
+        base_url = "https://procedurepassport.streamlit.app"
+        magic_link = f"{base_url}/?mode=attending&resident={resident_email}&procedure_id={procedure_id}&specialty_id={specialty_id}&attending_name={safe_attending}"
+
+        st.markdown("### 🔗 Magic Link for Attending")
+        st.markdown("Copy and send this link to your attending so they can complete the evaluation:")
+
+        st.code(magic_link, language='text')
+
+        st.button("📋 Copy Link to Clipboard", on_click=st.toast, args=("Link copied!",))
+
+    # ---------------------------------------------
+    # Navigation Buttons
+    # ---------------------------------------------
     if st.button("← Back to Login"):
         go_back("login")
 
@@ -1255,3 +1292,92 @@ elif st.session_state["page"] == "cumulative":
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
+
+# -----------------------------
+# PAGE: ATTENDING ASSESSMENT (via magic link)
+# -----------------------------
+elif st.session_state["page"] == "attending_assessment":
+    st.title("📝 Attending Evaluation")
+
+    # Confirm required query parameters exist
+    resident_email = st.session_state.get("resident")
+    procedure_id = st.session_state.get("procedure_id")
+    specialty_id = st.session_state.get("specialty_id")
+    attending_name = st.session_state.get("attending_name", "Unknown")
+
+    if not (resident_email and procedure_id and specialty_id):
+        st.error("Missing required information in the link.")
+        st.stop()
+
+    # Load references
+    _, _, steps_df, _ = load_refs()
+    steps = steps_df[steps_df["procedure_id"] == procedure_id].sort_values("step_order")
+
+    if steps.empty:
+        st.error("This procedure has no defined steps.")
+        st.stop()
+
+    # Display summary info
+    st.markdown(f"**Resident:** {resident_email}")
+    st.markdown(f"**Specialty:** `{specialty_id}`")
+    st.markdown(f"**Procedure:** `{procedure_id}`")
+    st.markdown(f"**Attending:** {attending_name}")
+
+    # Case date
+    case_date = st.date_input("Date of Procedure", value=datetime.date.today())
+
+    # Case complexity
+    case_complexity = st.selectbox(
+        "Case Complexity",
+        ["Straight Forward", "Moderate", "Complex"]
+    )
+
+    # Step-level dropdowns
+    RATING_OPTIONS = ["Not Assessed", "Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
+    scores = {}
+    st.markdown("#### Step-Level Ratings")
+    for _, row in steps.iterrows():
+        step_id = row["step_id"]
+        step_name = row["step_name"]
+        scores[step_id] = st.selectbox(step_name, RATING_OPTIONS, key=f"attend_score_{step_id}")
+
+    # O-Score dropdown
+    o_score = st.selectbox(
+        "Overall Performance (O-Score)",
+        [
+            "— Make a selection —",
+            "1 - Not Yet",
+            "2 - Steer",
+            "3 - Prompt",
+            "4 - Backup",
+            "5 - Auto"
+        ]
+    )
+
+    # Comments
+    notes = st.text_area("Comments / Feedback (optional)")
+
+    # Submit button
+    if st.button("✅ Submit Evaluation"):
+        if o_score == "— Make a selection —":
+            st.warning("Please select an overall performance rating.")
+            st.stop()
+
+        # Convert O-Score text to just the numeric part
+        overall_score_value = o_score.split("-")[0].strip()
+
+        # Save case
+        case_id = save_case(
+            resident_email=resident_email,
+            date=case_date,
+            specialty_id=specialty_id,
+            procedure_id=procedure_id,
+            attending_id=f"magic_{attending_name}",  # Tag as magic link
+            scores_dict=scores,
+            notes=notes,
+            case_complexity=case_complexity,
+            overall_performance=o_score
+        )
+
+        st.success("✅ Thank you for submitting your evaluation!")
+        st.markdown("You may now close this window.")
