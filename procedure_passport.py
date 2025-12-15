@@ -689,17 +689,14 @@ elif st.session_state["page"] == "start":
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
-# -----------------------------
-# PAGE: ASSESSMENT
-# -----------------------------
 elif st.session_state["page"] == "assessment":
-    # ✅ Define user context
+    # ✅ Set user context
     is_admin = st.session_state["resident"] in ADMINS
     is_attending_link = st.session_state.get("mode") == "attending"
 
     st.title("Assessment")
 
-    # 🔙 Back to Home (only for logged-in residents)
+    # 🔙 Back to Home (residents only)
     if not is_admin and not is_attending_link:
         if st.button("🏠 Back to Home"):
             go_next("dashboard")
@@ -709,11 +706,9 @@ elif st.session_state["page"] == "assessment":
     procedure_id = st.session_state["procedure_id"]
     specialty_id = st.session_state["specialty_id"]
 
+    # ✅ Only filter by procedure_id (not specialty_id)
     steps = (
-        steps_df[
-            (steps_df["procedure_id"] == procedure_id)
-            & (steps_df["specialty_id"] == specialty_id)
-        ]
+        steps_df[steps_df["procedure_id"] == procedure_id]
         .sort_values("step_order")
     )
 
@@ -814,7 +809,7 @@ elif st.session_state["page"] == "assessment":
                 st.error(error)
             st.stop()
 
-        # Example: Call your save function (you can replace this as needed)
+        # Example: Save the case (adapt this function as needed)
         st.session_state["current_case_id"] = save_case(
             resident_email=st.session_state["resident"],
             date=st.session_state["date"],
