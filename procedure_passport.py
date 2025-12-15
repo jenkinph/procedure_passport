@@ -674,7 +674,7 @@ elif st.session_state["page"] == "start":
     # Navigation Buttons
     # ---------------------------------------------
     # Only show to logged-in residents
-if not is_admin:
+    if not is_admin:
     if st.button("🏠 Back to Home"):
         go_next("dashboard")
         
