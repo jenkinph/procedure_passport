@@ -99,6 +99,7 @@ def ensure_resident(email, name=""):
         new_row = {
             "email": email,
             "name": name,
+            "specialty_id": specialty_id,
             "created_at": datetime.datetime.utcnow().isoformat()
         }
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
