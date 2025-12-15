@@ -594,23 +594,43 @@ elif st.session_state["page"] == "home":
 # -----------------------------
 elif st.session_state["page"] == "start":
     st.title("Start Assessment")
-    spec_df, proc_df, steps_df, atnd_df = load_refs()
 
+    spec_df, proc_df, steps_df, atnd_df = load_refs()
     spec_map = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
     id_to_name = dict(zip(spec_df["specialty_id"], spec_df["specialty_name"]))
 
-    resident_spec_id = st.session_state.get("specialty_id")
-    resident_spec_name = id_to_name.get(resident_spec_id, "Unknown Specialty")
+    # 🔍 Detect admin mode
+    is_admin = st.session_state["resident"] in ADMINS
 
-    st.markdown(f"**Specialty:** {resident_spec_name}")
-    st.session_state["specialty_id"] = resident_spec_id
+    # 🔁 Admins select any specialty; residents use assigned one
+    if is_admin:
+        selected_spec_name = st.selectbox("Select a specialty", list(spec_map.keys()))
+        specialty_id = spec_map[selected_spec_name]
+        st.session_state["specialty_id"] = specialty_id
+    else:
+        specialty_id = st.session_state.get("specialty_id")
+        selected_spec_name = id_to_name.get(specialty_id, "Unknown Specialty")
+        st.markdown(f"**Specialty:** {selected_spec_name}")
+        if specialty_id is None:
+            st.error("No specialty assigned to your account. Please contact an admin.")
+            st.stop()
 
-    procs = proc_df[proc_df["specialty_id"]==st.session_state["specialty_id"]]
+    # 🔁 Filter procedures and attendings by selected/assigned specialty
+    procs = proc_df[proc_df["specialty_id"] == specialty_id]
+    atnds = atnd_df[atnd_df["specialty_id"] == specialty_id]
+
+    if procs.empty:
+        st.warning("⚠️ No procedures available for this specialty.")
+        st.stop()
+    if atnds.empty:
+        st.warning("⚠️ No attendings available for this specialty.")
+        st.stop()
+
+    # Procedure and Attending dropdowns
     proc_map = dict(zip(procs["procedure_name"], procs["procedure_id"]))
     procedure = st.selectbox("Procedure", list(proc_map.keys()))
     st.session_state["procedure_id"] = proc_map[procedure]
 
-    atnds = atnd_df[atnd_df["specialty_id"]==st.session_state["specialty_id"]]
     atnd_map = dict(zip(atnds["attending_name"], atnds["attending_id"]))
     attending = st.selectbox("Attending", list(atnd_map.keys()))
     st.session_state["attending_id"] = atnd_map[attending]
