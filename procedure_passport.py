@@ -675,16 +675,16 @@ elif st.session_state["page"] == "start":
     # ---------------------------------------------
     # Only show to logged-in residents
     if not is_admin:
-    if st.button("🏠 Back to Home"):
-        go_next("dashboard")
+        if st.button("🏠 Back to Home"):
+            go_next("dashboard")
         
-    if st.button("← Back to Login"):
-        go_back("login")
+        if st.button("← Back to Login"):
+            go_back("login")
 
-    if st.button("Start Assessment →"):
-        st.session_state["scores"] = {}
-        st.session_state["notes"] = ""
-        go_next("assessment")
+        if st.button("Start Assessment →"):
+            st.session_state["scores"] = {}
+            st.session_state["notes"] = ""
+            go_next("assessment")
 
 # -----------------------------
 # PAGE: ASSESSMENT
