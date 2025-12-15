@@ -648,16 +648,14 @@ elif st.session_state["page"] == "start":
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
-# -----------------------------
-# PAGE: ASSESSMENT
-# -----------------------------
+
 elif st.session_state["page"] == "assessment":
     _, _, steps_df, _ = load_refs()
     steps = steps_df[steps_df["procedure_id"] == st.session_state["procedure_id"]].sort_values("step_order")
 
     st.title("Assessment")
 
-    # 🔁 Move case complexity to the top
+    # 🔁 Case complexity first
     st.session_state["case_complexity"] = st.selectbox(
         "Case Complexity",
         ["Straight Forward", "Moderate", "Complex"],
@@ -666,7 +664,27 @@ elif st.session_state["page"] == "assessment":
         )
     )
 
-    # 🔁 Step ratings (dropdowns for each step)
+    # ✅ Ratings with Not Assessed at top
+    RATING_OPTIONS = ["Not Assessed", "Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
+    RATING_TO_NUM = {
+        "Not Assessed": -1,
+        "Not Done": 0,
+        "Not Yet": 1,
+        "Steer": 2,
+        "Prompt": 3,
+        "Back up": 4,
+        "Auto": 5
+    }
+
+    st.markdown("#### Step-Level Assessment")
+
+    # 🔘 Optional: Mark all as Not Assessed
+    if st.button("↺ Mark All Steps as 'Not Assessed'"):
+        for _, row in steps.iterrows():
+            step_id = row["step_id"]
+            st.session_state["scores"][step_id] = "Not Assessed"
+
+    # 🔁 Step dropdowns
     for _, row in steps.iterrows():
         step_id = row["step_id"]
         step_name = row["step_name"]
@@ -674,13 +692,12 @@ elif st.session_state["page"] == "assessment":
             step_name,
             RATING_OPTIONS,
             index=RATING_OPTIONS.index(
-                st.session_state["scores"].get(step_id, "Not Done")
+                st.session_state["scores"].get(step_id, "Not Assessed")
             ),
             key=f"score_{step_id}"
         )
 
-    # ✅ Overall Performance O-Score (can also convert to dropdown if desired)
-   # 🔁 Dropdown version with no default
+    # 🔁 O-Score as dropdown with no default
     O_SCORE_OPTIONS = [
         "— Make a selection —",
         "1 - Not Yet",
@@ -689,19 +706,21 @@ elif st.session_state["page"] == "assessment":
         "4 - Backup",
         "5 - Auto"
     ]
-
     current_o_score = st.session_state.get("overall_performance", "— Make a selection —")
-
     st.session_state["overall_performance"] = st.selectbox(
         "Overall Performance (O-Score)",
         O_SCORE_OPTIONS,
         index=O_SCORE_OPTIONS.index(current_o_score) if current_o_score in O_SCORE_OPTIONS else 0
     )
 
-    # ✅ Free-text comments
+    # 🔁 Comments section
     st.session_state["notes"] = st.text_area("Comments / Feedback")
 
-    # Navigation buttons
+    # 🔁 Warning if all steps are Not Assessed
+    if all(v == "Not Assessed" for v in st.session_state["scores"].values()):
+        st.warning("⚠️ All steps are currently marked as 'Not Assessed'.")
+
+    # 🔘 Navigation buttons
     if st.button("← Back to Start"):
         go_back("start")
 
