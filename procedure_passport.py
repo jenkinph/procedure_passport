@@ -660,13 +660,22 @@ elif st.session_state["page"] == "assessment":
         )
 
     # ✅ Overall Performance O-Score (can also convert to dropdown if desired)
-    st.session_state["overall_performance"] = st.radio(
+   # 🔁 Dropdown version with no default
+    O_SCORE_OPTIONS = [
+        "— Make a selection —",
+        "1 - Not Yet",
+        "2 - Steer",
+        "3 - Prompt",
+        "4 - Backup",
+        "5 - Auto"
+    ]
+
+    current_o_score = st.session_state.get("overall_performance", "— Make a selection —")
+
+    st.session_state["overall_performance"] = st.selectbox(
         "Overall Performance (O-Score)",
-        ["1 - Not Yet", "2 - Steer", "3 - Prompt", "4 - Backup", "5 - Auto"],
-        horizontal=True,
-        index=["1 - Not Yet", "2 - Steer", "3 - Prompt", "4 - Backup", "5 - Auto"].index(
-            st.session_state.get("overall_performance", "3 - Prompt")
-        )
+        O_SCORE_OPTIONS,
+        index=O_SCORE_OPTIONS.index(current_o_score) if current_o_score in O_SCORE_OPTIONS else 0
     )
 
     # ✅ Free-text comments
