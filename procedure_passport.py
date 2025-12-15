@@ -668,12 +668,16 @@ elif st.session_state["page"] == "start":
         st.markdown("Copy and send this link to your attending so they can complete the evaluation:")
 
         st.code(magic_link, language='text')
-
-        st.button("📋 Copy Link to Clipboard", on_click=st.toast, args=("Link copied!",))
+        st.caption("Use the 📋 icon above to copy the link.")
 
     # ---------------------------------------------
     # Navigation Buttons
     # ---------------------------------------------
+    # Only show to logged-in residents
+if not is_admin:
+    if st.button("🏠 Back to Home"):
+        go_next("dashboard")
+        
     if st.button("← Back to Login"):
         go_back("login")
 
@@ -774,6 +778,10 @@ elif st.session_state["page"] == "assessment":
             notes=st.session_state.get("notes", "")
         )
         go_next("dashboard")
+
+    if "resident" in st.session_state and st.session_state["resident"] not in ADMINS:
+        if st.button("🏠 Back to Home"):
+            go_next("dashboard")
 # -----------------------------
 # PAGE: CASE DASHBOARD
 # -----------------------------
