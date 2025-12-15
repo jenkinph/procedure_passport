@@ -758,11 +758,19 @@ elif st.session_state["page"] == "dashboard":
         st.write("**Comments:**")
         st.info(st.session_state["notes"])
 
-    if st.button("← Back to Assessment"):
-        go_back("assessment")
+    col1, col2, col3 = st.columns(3)
 
-    if st.button("View My Cumulative Dashboard →"):
-        go_next("cumulative")
+    with col1:
+        if st.button("← Back to Assessment"):
+            go_back("assessment")
+
+    with col2:
+        if st.button("🏠 Back to Home"):
+            go_next("home")
+
+    with col3:
+        if st.button("➕ Start New Assessment"):
+            go_next("start")
 
 # -------------------
 # PAGE: COMMENTS DASHBOARD
