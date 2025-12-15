@@ -809,20 +809,23 @@ elif st.session_state["page"] == "assessment":
                 st.error(error)
             st.stop()
 
-        # Example: Save the case (adapt this function as needed)
-        st.session_state["current_case_id"] = save_case(
-            resident_email=st.session_state["resident"],
-            date=st.session_state["date"],
-            specialty_id=specialty_id,
-            procedure_id=procedure_id,
-            attending_id=st.session_state["attending_id"],
-            scores_dict=st.session_state["scores"],
-            case_complexity=case_complexity,
-            overall_performance=overall_performance,
-            notes=notes,
-        )
+            st.session_state["current_case_id"] = save_case(
+                resident_email=st.session_state["resident"],
+                date=st.session_state["date"],
+                specialty_id=specialty_id,
+                procedure_id=procedure_id,
+                attending_id=st.session_state["attending_id"],
+                scores_dict=st.session_state["scores"],
+                case_complexity=case_complexity,
+                overall_performance=overall_performance,
+                notes=notes,
+            )
 
-        go_next("dashboard")
+            # Automatically navigate only for residents
+            if not is_admin and not is_attending_link:
+                go_next("dashboard")
+            else:
+                st.success("✅ Assessment submitted.")
 
 # -------------------
 # PAGE: COMMENTS DASHBOARD
