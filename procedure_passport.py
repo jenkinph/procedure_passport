@@ -689,99 +689,149 @@ if not is_admin:
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
-
 elif st.session_state["page"] == "assessment":
-    _, _, steps_df, _ = load_refs()
-    steps = steps_df[steps_df["procedure_id"] == st.session_state["procedure_id"]].sort_values("step_order")
-
     st.title("Assessment")
 
-    # 🔁 Case complexity first
-    st.session_state["case_complexity"] = st.selectbox(
-        "Case Complexity",
-        ["Straight Forward", "Moderate", "Complex"],
-        index=["Straight Forward", "Moderate", "Complex"].index(
-            st.session_state.get("case_complexity", "Straight Forward")
-        )
+    # -----------------------------
+    # User context
+    # -----------------------------
+    is_admin = st.session_state["resident"] in ADMINS
+    is_attending_link = st.session_state.get("mode") == "attending"
+
+    # Resident-only navigation
+    if not is_admin and not is_attending_link:
+        if st.button("🏠 Back to Home"):
+            go_next("home")
+
+    # -----------------------------
+    # Load procedure steps
+    # -----------------------------
+    _, _, steps_df, _ = load_refs()
+    procedure_id = st.session_state["procedure_id"]
+
+    steps = (
+        steps_df[steps_df["procedure_id"] == procedure_id]
+        .sort_values("step_order")
     )
 
-    # ✅ Ratings with Not Assessed at top
-    RATING_OPTIONS = ["Not Assessed", "Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
-    RATING_TO_NUM = {
-        "Not Assessed": -1,
-        "Not Done": 0,
-        "Not Yet": 1,
-        "Steer": 2,
-        "Prompt": 3,
-        "Back up": 4,
-        "Auto": 5
-    }
+    if steps.empty:
+        st.error("No steps are defined for this procedure.")
+        st.stop()
 
-    st.markdown("#### Step-Level Assessment")
+    # -----------------------------
+    # Required: Case Complexity
+    # -----------------------------
+    COMPLEXITY_OPTIONS = [
+        "— Make a selection —",
+        "Straight Forward",
+        "Moderate",
+        "Complex",
+    ]
 
-    # 🔘 Optional: Mark all as Not Assessed
-    if st.button("↺ Mark All Steps as 'Not Assessed'"):
-        for _, row in steps.iterrows():
-            step_id = row["step_id"]
-            st.session_state["scores"][step_id] = "Not Assessed"
+    current_complexity = st.session_state.get("case_complexity", "— Make a selection —")
 
-    # 🔁 Step dropdowns
+    case_complexity = st.selectbox(
+        "Case Complexity *",
+        COMPLEXITY_OPTIONS,
+        index=COMPLEXITY_OPTIONS.index(current_complexity)
+        if current_complexity in COMPLEXITY_OPTIONS else 0,
+    )
+
+    st.session_state["case_complexity"] = case_complexity
+
+    # -----------------------------
+    # Step-level ratings
+    # -----------------------------
+    st.markdown("### Step-Level Assessment")
+
+    RATING_OPTIONS = [
+        "Not Assessed",
+        "Not Done",
+        "Not Yet",
+        "Steer",
+        "Prompt",
+        "Back up",
+        "Auto",
+    ]
+
+    if "scores" not in st.session_state:
+        st.session_state["scores"] = {}
+
     for _, row in steps.iterrows():
         step_id = row["step_id"]
         step_name = row["step_name"]
+
         st.session_state["scores"][step_id] = st.selectbox(
             step_name,
             RATING_OPTIONS,
             index=RATING_OPTIONS.index(
                 st.session_state["scores"].get(step_id, "Not Assessed")
             ),
-            key=f"score_{step_id}"
+            key=f"score_{step_id}",
         )
 
-    # 🔁 O-Score as dropdown with no default
+    # -----------------------------
+    # Required: Overall O-Score
+    # -----------------------------
     O_SCORE_OPTIONS = [
         "— Make a selection —",
         "1 - Not Yet",
         "2 - Steer",
         "3 - Prompt",
         "4 - Backup",
-        "5 - Auto"
+        "5 - Auto",
     ]
+
     current_o_score = st.session_state.get("overall_performance", "— Make a selection —")
-    st.session_state["overall_performance"] = st.selectbox(
-        "Overall Performance (O-Score)",
+
+    overall_performance = st.selectbox(
+        "Overall Performance (O-Score) *",
         O_SCORE_OPTIONS,
-        index=O_SCORE_OPTIONS.index(current_o_score) if current_o_score in O_SCORE_OPTIONS else 0
+        index=O_SCORE_OPTIONS.index(current_o_score)
+        if current_o_score in O_SCORE_OPTIONS else 0,
     )
 
-    # 🔁 Comments section
-    st.session_state["notes"] = st.text_area("Comments / Feedback")
+    st.session_state["overall_performance"] = overall_performance
 
-    # 🔁 Warning if all steps are Not Assessed
-    if all(v == "Not Assessed" for v in st.session_state["scores"].values()):
-        st.warning("⚠️ All steps are currently marked as 'Not Assessed'.")
+    # -----------------------------
+    # Optional comments
+    # -----------------------------
+    st.session_state["notes"] = st.text_area(
+        "Comments / Feedback (optional)",
+        value=st.session_state.get("notes", ""),
+    )
 
-    # 🔘 Navigation buttons
-    if st.button("← Back to Start"):
-        go_back("start")
-
+    # -----------------------------
+    # Validation + Submit
+    # -----------------------------
     if st.button("Finish →"):
-        st.session_state["current_case_id"] = save_case(
-            st.session_state["resident"],
-            st.session_state["date"],
-            st.session_state["specialty_id"],
-            st.session_state["procedure_id"],
-            st.session_state["attending_id"],
-            st.session_state["scores"],
-            case_complexity=st.session_state["case_complexity"],
-            overall_performance=st.session_state["overall_performance"],
-            notes=st.session_state.get("notes", "")
-        )
-        go_next("dashboard")
+        errors = []
 
-    if "resident" in st.session_state and st.session_state["resident"] not in ADMINS:
-        if st.button("🏠 Back to Home"):
-            go_next("dashboard")
+        if case_complexity == "— Make a selection —":
+            errors.append("Please select a case complexity.")
+
+        if overall_performance == "— Make a selection —":
+            errors.append("Please select an overall O-Score.")
+
+        if errors:
+            for e in errors:
+                st.error(e)
+            st.stop()
+
+        # Save case
+        st.session_state["current_case_id"] = save_case(
+            resident_email=st.session_state["resident"],
+            date=st.session_state["date"],
+            specialty_id=st.session_state["specialty_id"],
+            procedure_id=st.session_state["procedure_id"],
+            attending_id=st.session_state["attending_id"],
+            scores_dict=st.session_state["scores"],
+            case_complexity=case_complexity,
+            overall_performance=overall_performance,
+            notes=st.session_state["notes"],
+        )
+
+        go_next("dashboard")
 # -----------------------------
 # PAGE: CASE DASHBOARD
 # -----------------------------
