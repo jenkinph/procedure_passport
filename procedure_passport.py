@@ -335,7 +335,7 @@ if st.session_state["page"] == "login":
                 st.session_state["resident_name"] = (
                     residents.loc[residents["email"] == email, "name"].values[0]
                 )
-                st.sesson_state["specialty_id"] == resident_row["specialty_id"]
+                st.sesson_state["specialty_id"] = resident_row["specialty_id"]
                 st.session_state["page"] = "home"
                 st.rerun()
             else:
