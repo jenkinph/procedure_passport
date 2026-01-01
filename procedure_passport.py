@@ -100,8 +100,8 @@ def load_refs():
 
 def ensure_resident(email, name=""):
     """Add a resident to the residents sheet if not already present."""
-    cols = ["email","name","created_at"]
-
+    cols = ["email","name","specialty_id","created_at"]
+    
     # read current residents from Google Sheets
     df = read_sheet_df("residents", expected_cols=cols)
 
