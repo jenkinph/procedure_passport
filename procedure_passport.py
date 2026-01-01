@@ -689,8 +689,8 @@ elif st.session_state["page"] == "start":
 
     with col2:
         if st.button("⬅️ Back to Home"):
-        st.session_state["page"] = "home"
-        st.rerun()
+            st.session_state["page"] = "home"
+            st.rerun()
 
     with col3:
         if st.button("Start Assessment →"):
