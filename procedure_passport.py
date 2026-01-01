@@ -689,6 +689,10 @@ elif st.session_state["page"] == "start":
         st.session_state["notes"] = ""
         go_next("assessment")
 
+    if st.button("⬅️ Back to Home"):
+    st.session_state["page"] = "home"
+    st.rerun()
+
 # -----------------------------
 # PAGE: ASSESSMENT
 # -----------------------------
