@@ -678,25 +678,28 @@ elif st.session_state["page"] == "start":
 
         st.code(magic_link, language='text')
 
-# ---------------------------------------------
-# Navigation Buttons
-# ---------------------------------------------
-col1, col2, col3 = st.columns(3)
+    # -----------------------------
+    # Navigation Buttons
+    # -----------------------------
+    st.markdown("---")  # Optional divider
 
-with col1:
-    if st.button("← Back to Login"):
-        go_back("login")
-
-with col2:
+    # Back to Home - Always show, safe location
     if st.button("⬅️ Back to Home"):
-        st.session_state["page"] = "home"
-        st.rerun()
+    st.session_state["page"] = "home"
+    st.rerun()
 
-with col3:
-    if st.button("Start Assessment →"):
-        st.session_state["scores"] = {}
-        st.session_state["notes"] = ""
-        go_next("assessment")
+    # Put Login and Start inside columns
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        if st.button("← Back to Login"):
+            go_back("login")
+
+    with col2:
+        if st.button("Start Assessment →"):
+            st.session_state["scores"] = {}
+            st.session_state["notes"] = ""
+            go_next("assessment")
 
 # -----------------------------
 # PAGE: ASSESSMENT
