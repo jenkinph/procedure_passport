@@ -411,61 +411,61 @@ elif st.session_state["page"] == "admin":
                 st.rerun()
         else:
             st.error("Please enter both an ID and a name for the specialty.")
-# -------------------
-# Residents Section
-# -------------------
-st.subheader("Residents")
+    # -------------------
+    # Residents Section
+    # -------------------
+    st.subheader("Residents")
 
-# Load specialties first
-spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
-spec_name_to_id = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
+    # Load specialties first
+    spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+    spec_name_to_id = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
 
-# Load residents including specialty_id
-residents = read_sheet_df("residents", expected_cols=["email", "name", "specialty_id", "created_at"])
-residents_display = residents.merge(spec_df, how="left", on="specialty_id")
-st.dataframe(residents_display[["email", "name", "specialty_name", "created_at"]])
+    # Load residents including specialty_id
+    residents = read_sheet_df("residents", expected_cols=["email", "name", "specialty_id", "created_at"])
+    residents_display = residents.merge(spec_df, how="left", on="specialty_id")
+    st.dataframe(residents_display[["email", "name", "specialty_name", "created_at"]])
 
-# -------------------
-# Add New Resident
-# -------------------
-st.subheader("Add New Resident")
+    # -------------------
+    # Add New Resident
+    # -------------------
+    st.subheader("Add New Resident")
 
-new_res_email = st.text_input("New resident email")
-new_res_name = st.text_input("Resident name")
-new_res_spec = st.selectbox(
-    "Resident specialty",
-    options=list(spec_name_to_id.keys())
-)
+    new_res_email = st.text_input("New resident email")
+    new_res_name = st.text_input("Resident name")
+    new_res_spec = st.selectbox(
+        "Resident specialty",
+        options=list(spec_name_to_id.keys())
+    )
 
-if st.button("Add resident"):
-    if not new_res_email or not new_res_name or not new_res_spec:
-        st.warning("Please enter email, name, and specialty.")
-    else:
-        specialty_id = spec_name_to_id[new_res_spec]
+    if st.button("Add resident"):
+        if not new_res_email or not new_res_name or not new_res_spec:
+            st.warning("Please enter email, name, and specialty.")
+        else:
+            specialty_id = spec_name_to_id[new_res_spec]
 
-        ensure_resident(
-            new_res_email,
-            new_res_name,
-            specialty_id
-        )
+            ensure_resident(
+                new_res_email,
+                new_res_name,
+                specialty_id
+            )
 
-        st.success(f"✅ Added resident: {new_res_email}")
-        st.cache_data.clear()
-        time.sleep(1)
-        st.rerun()  
+            st.success(f"✅ Added resident: {new_res_email}")
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()  
         
-# Delete resident
-if not residents.empty:
-    del_res_email = st.selectbox("Select resident to delete", residents["email"])
-    if st.button("Delete selected resident"):
-            updated = residents[residents["email"] != del_res_email].reset_index(drop=True)
-            write_sheet_df(SHEET_RESIDENTS, updated)
-            st.success(f"Deleted {del_res_email}")
-            st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
-            time.sleep(1)              # ⏳ lets Google confirm the write
-            st.rerun()    # 🔁 clean restart of the app
+    # Delete resident
+    if not residents.empty:
+        del_res_email = st.selectbox("Select resident to delete", residents["email"])
+        if st.button("Delete selected resident"):
+                updated = residents[residents["email"] != del_res_email].reset_index(drop=True)
+                write_sheet_df(SHEET_RESIDENTS, updated)
+                st.success(f"Deleted {del_res_email}")
+                st.cache_data.clear()      # 🧠 clears the cached Google Sheets reads
+                time.sleep(1)              # ⏳ lets Google confirm the write
+                st.rerun()    # 🔁 clean restart of the app
 
-    st.markdown("---")
+        st.markdown("---")
 
     # -------------------
     # Attendings Section
