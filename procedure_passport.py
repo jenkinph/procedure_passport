@@ -71,6 +71,7 @@ SHEET_PROCEDURES = "procedures"
 SHEET_STEPS      = "steps"
 SHEET_CASES      = "cases"
 SHEET_SCORES     = "scores"
+SHEET_SPECIALTY  = "specialty"
 
 
 @st.cache_data(ttl=60, show_spinner=False)
