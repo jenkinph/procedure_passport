@@ -685,8 +685,8 @@ elif st.session_state["page"] == "start":
 
     # Back to Home - Always show, safe location
     if st.button("⬅️ Back to Home"):
-    st.session_state["page"] = "home"
-    st.rerun()
+        st.session_state["page"] = "home"
+        st.rerun()
 
     # Put Login and Start inside columns
     col1, col2 = st.columns([1, 2])
