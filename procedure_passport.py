@@ -843,38 +843,49 @@ elif st.session_state["page"] == "comments":
             st.cache_data.clear()
             time.sleep(1)
             st.rerun()
+
     else:
         # --- Load relevant sheets ---
         cases_df = read_sheet_df(
             SHEET_CASES,
             expected_cols=[
-                "case_id", "resident_email", "date", "specialty_id", "procedure_id",
-                "attending_id", "notes", "case_complexity", "overall_performance"
+                "case_id", "resident_email", "date", "specialty_id",
+                "procedure_id", "attending_id", "notes",
+                "case_complexity", "overall_performance"
             ]
         )
+
         procs_df = read_sheet_df(
             SHEET_PROCEDURES,
             expected_cols=["procedure_id", "procedure_name", "specialty_id"]
         )
+
         atnds_df = read_sheet_df(
             SHEET_ATTENDINGS,
             expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
         )
 
         # --- Filter to this resident ---
-        res_cases = cases_df[cases_df["resident_email"] == resident]
+        res_cases = cases_df[cases_df["resident_email"] == resident].copy()
+
+        # --- Drop rows with empty / null / whitespace-only comments ---
+        res_cases["notes"] = res_cases["notes"].fillna("").astype(str)
+        res_cases = res_cases[res_cases["notes"].str.strip() != ""]
+
         if res_cases.empty:
-            st.info("No comments recorded yet.")
+            st.info("No comments available to display.")
             if st.button("⬅️ Back to Home"):
                 go_next("home")
+
         else:
             # --- Merge in human-readable labels ---
             merged = (
-                res_cases.merge(procs_df, on="procedure_id", how="left")
-                         .merge(atnds_df, on="attending_id", how="left")
+                res_cases
+                .merge(procs_df, on="procedure_id", how="left")
+                .merge(atnds_df, on="attending_id", how="left")
             )
 
-            # --- Clean up columns ---
+            # --- Rename columns for display ---
             merged = merged.rename(columns={
                 "date": "Date",
                 "procedure_name": "Procedure",
@@ -884,11 +895,12 @@ elif st.session_state["page"] == "comments":
                 "notes": "Comments"
             })
 
-            merged = merged[[
-                "Date", "Procedure", "Attending",
-                "Case Complexity", "Overall Performance", "Comments"
-            ]].sort_values("Date", ascending=False)
+            merged = merged[
+                ["Date", "Procedure", "Attending",
+                 "Case Complexity", "Overall Performance", "Comments"]
+            ].sort_values("Date", ascending=False)
 
+            # --- Display table ---
             st.dataframe(merged, use_container_width=True)
 
             # --- Excel Export ---
@@ -896,10 +908,9 @@ elif st.session_state["page"] == "comments":
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 merged.to_excel(writer, index=False, sheet_name="Comments")
 
-            excel_data = output.getvalue()
             st.download_button(
                 label="📥 Download Comments as Excel",
-                data=excel_data,
+                data=output.getvalue(),
                 file_name=f"{resident}_comments_dashboard.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
