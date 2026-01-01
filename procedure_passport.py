@@ -432,18 +432,19 @@ new_res_name = st.text_input("Resident name")
 new_res_spec = st.selectbox("Resident specialty", options=list(spec_name_to_id.keys()))
 
 if st.button("Add resident"):
-    if new_res_email and new_res_spec:
+    if new_res_email and new_res_spec and new_res_spec in spec_name_to_id:
+        specialty_id = spec_name_to_id[new_res_spec]
         ensure_resident(
             new_res_email,
             new_res_name,
-            spec_name_to_id[new_res_spec]
+            specialty_id
         )
-        st.success(f"Added {new_res_email}")
+        st.success(f"✅ Added resident: {new_res_email}")
         st.cache_data.clear()
         time.sleep(1)
         st.rerun()
     else:
-        st.error("Please enter email and select a specialty.")    
+        st.error("❌ Please enter email and select a valid specialty.")   
         
 # Delete resident
 if not residents.empty:
