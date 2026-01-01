@@ -411,44 +411,44 @@ elif st.session_state["page"] == "admin":
                 st.rerun()
         else:
             st.error("Please enter both an ID and a name for the specialty.")
-    # -------------------
-    # Residents Section
-    # -------------------
-    st.subheader("Residents")
+# -------------------
+# Residents Section
+# -------------------
+st.subheader("Residents")
 
-    # Load residents from Google Sheets
-    residents = read_sheet_df(SHEET_RESIDENTS, expected_cols=["email", "name", "created_at"])
-    st.dataframe(residents)
+# Load specialties (needed before dropdown)
+spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
+spec_name_to_id = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
 
-    # Add new resident
-    new_res_email = st.text_input("New resident email")
-    new_res_name = st.text_input("Resident name")
+# Load residents with specialty_id included
+residents = read_sheet_df(SHEET_RESIDENTS, expected_cols=["email", "name", "specialty_id", "created_at"])
+residents_display = residents.merge(spec_df, how="left", on="specialty_id")
+st.dataframe(residents_display[["email", "name", "specialty_name", "created_at"]])
 
-    spec_df = read_sheet_df("specialties", expected_cols=["specialty_id", "specialty_name"])
-    spec_name_to_id = dict(zip(spec_df["specialty_name"], spec_df["specialty_id"]))
+# Add new resident
+new_res_email = st.text_input("New resident email")
+new_res_name = st.text_input("Resident name")
 
-    new_res_spec = st.selectbox(
-    "Resident specialty",
-    options=list(spec_name_to_id.keys())
-    )
+new_res_spec = st.selectbox("Resident specialty", options=list(spec_name_to_id.keys()))
 
-    if st.button("Add resident"):
-        if new_res_email and new_res_spec:
-            ensure_resident(
-                new_res_email,
-                new_res_name,
-                spec_name_to_id[new_res_spec]
-            )
-            st.success(f"Added {new_res_email}")
-            st.cache_data.clear()
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("Please enter email and select a specialty.")
-    # Delete resident
-    if not residents.empty:
-        del_res_email = st.selectbox("Select resident to delete", residents["email"])
-        if st.button("Delete selected resident"):
+if st.button("Add resident"):
+    if new_res_email and new_res_spec:
+        ensure_resident(
+            new_res_email,
+            new_res_name,
+            spec_name_to_id[new_res_spec]
+        )
+        st.success(f"Added {new_res_email}")
+        st.cache_data.clear()
+        time.sleep(1)
+        st.rerun()
+    else:
+        st.error("Please enter email and select a specialty.")    
+        
+# Delete resident
+if not residents.empty:
+    del_res_email = st.selectbox("Select resident to delete", residents["email"])
+    if st.button("Delete selected resident"):
             updated = residents[residents["email"] != del_res_email].reset_index(drop=True)
             write_sheet_df(SHEET_RESIDENTS, updated)
             st.success(f"Deleted {del_res_email}")
