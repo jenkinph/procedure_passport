@@ -98,14 +98,12 @@ def load_refs():
 
     return spec_df, proc_df, steps_df, atnd_df
 
-def ensure_resident(email, name=""):
+def ensure_resident(email, name="", specialty_id=None):
     """Add a resident to the residents sheet if not already present."""
-    cols = ["email","name","specialty_id","created_at"]
-    
-    # read current residents from Google Sheets
+    cols = ["email", "name", "specialty_id", "created_at"]
+
     df = read_sheet_df("residents", expected_cols=cols)
 
-    # if they're not already in there, append and write back
     if email not in df["email"].values:
         new_row = {
             "email": email,
@@ -114,6 +112,7 @@ def ensure_resident(email, name=""):
             "created_at": datetime.datetime.utcnow().isoformat()
         }
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        write_sheet_df("residents", df)
 
         write_sheet_df("residents", df)
 def ensure_attending(name, specialty_id, email=""):
