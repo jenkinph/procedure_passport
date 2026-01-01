@@ -681,17 +681,22 @@ elif st.session_state["page"] == "start":
     # ---------------------------------------------
     # Navigation Buttons
     # ---------------------------------------------
-    if st.button("← Back to Login"):
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("← Back to Login"):
         go_back("login")
 
-    if st.button("Start Assessment →"):
-        st.session_state["scores"] = {}
-        st.session_state["notes"] = ""
-        go_next("assessment")
-
-    if st.button("⬅️ Back to Home"):
+    with col2:
+        if st.button("⬅️ Back to Home"):
         st.session_state["page"] = "home"
         st.rerun()
+
+    with col3:
+        if st.button("Start Assessment →"):
+            st.session_state["scores"] = {}
+            st.session_state["notes"] = ""
+            go_next("assessment")
 
 # -----------------------------
 # PAGE: ASSESSMENT
