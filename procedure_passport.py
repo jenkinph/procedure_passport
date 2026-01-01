@@ -425,28 +425,34 @@ residents = read_sheet_df("residents", expected_cols=["email", "name", "specialt
 residents_display = residents.merge(spec_df, how="left", on="specialty_id")
 st.dataframe(residents_display[["email", "name", "specialty_name", "created_at"]])
 
-# Add new resident inputs
+# -------------------
+# Add New Resident
+# -------------------
+st.subheader("Add New Resident")
+
 new_res_email = st.text_input("New resident email")
 new_res_name = st.text_input("Resident name")
-new_res_spec = st.selectbox("Resident specialty", options=list(spec_name_to_id.keys()))
+new_res_spec = st.selectbox(
+    "Resident specialty",
+    options=list(spec_name_to_id.keys())
+)
 
 if st.button("Add resident"):
-    if new_res_email and new_res_name and new_res_spec:
-        try:
-            specialty_id = spec_name_to_id[new_res_spec]
-            ensure_resident(
-                email=new_res_email,
-                name=new_res_name,
-                specialty_id=specialty_id
-            )
-            st.success(f"✅ Added resident: {new_res_email}")
-            st.cache_data.clear()
-            time.sleep(1)
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Failed to add resident: {e}")
+    if not new_res_email or not new_res_name or not new_res_spec:
+        st.warning("Please enter email, name, and specialty.")
     else:
-        st.warning("Please enter all fields: email, name, and specialty.")   
+        specialty_id = spec_name_to_id[new_res_spec]
+
+        ensure_resident(
+            new_res_email,
+            new_res_name,
+            specialty_id
+        )
+
+        st.success(f"✅ Added resident: {new_res_email}")
+        st.cache_data.clear()
+        time.sleep(1)
+        st.rerun()  
         
 # Delete resident
 if not residents.empty:
