@@ -10,8 +10,7 @@ import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
 
 st.set_page_config(
     page_title="Procedure Passport",
@@ -633,7 +632,7 @@ elif page == "home":
     with c2:
         st.markdown('<div class="pp-card">', unsafe_allow_html=True)
         st.markdown("### 📊 Cumulative Dashboard")
-        st.markdown("View your progress heatmap and learning curve over time.")
+        st.markdown("View your progress heatmap over time.")
         if st.button("View Dashboard", use_container_width=True):
             go_to("cumulative")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1145,74 +1144,6 @@ elif page == "cumulative":
         "</div>",
         unsafe_allow_html=True,
     )
-
-    # ── Learning Curve Chart ──────────────────────────────
-    st.markdown("---")
-    st.markdown("### 📈 Learning Curve — Rating Over Time per Step")
-
-    # Build a time-ordered table: case# (x), step, avg rating_num
-    curve_data = (
-        proc_data[["case_id", "date", "step_name", "rating_num"]]
-        .dropna(subset=["rating_num"])
-        .copy()
-    )
-    curve_data["rating_num"] = pd.to_numeric(curve_data["rating_num"], errors="coerce")
-    curve_data = curve_data.dropna(subset=["rating_num"])
-    curve_data = curve_data[curve_data["rating_num"] >= 0]   # exclude Not Assessed (-1)
-
-    if curve_data.empty:
-        st.info("Not enough rated steps yet to draw a learning curve.")
-    else:
-        # Assign a sequential case number per date
-        case_order = (
-            proc_data[["case_id", "date"]]
-            .drop_duplicates()
-            .sort_values("date")
-            .reset_index(drop=True)
-        )
-        case_order["case_num"] = range(1, len(case_order) + 1)
-        curve_data = curve_data.merge(case_order[["case_id", "case_num"]], on="case_id", how="left")
-
-        step_avg = (
-            curve_data.groupby(["case_num", "step_name"])["rating_num"]
-            .mean()
-            .reset_index()
-        )
-
-        # Show only up to the 8 most commonly assessed steps to keep the chart readable
-        top_steps = (
-            curve_data.groupby("step_name")["rating_num"].count()
-            .sort_values(ascending=False)
-            .head(8)
-            .index.tolist()
-        )
-        step_avg  = step_avg[step_avg["step_name"].isin(top_steps)]
-
-        fig, ax = plt.subplots(figsize=(10, 4))
-        fig.patch.set_facecolor("none")
-        ax.set_facecolor("none")
-
-        cmap   = plt.get_cmap("tab10")
-        colors = [cmap(i) for i in range(len(top_steps))]
-
-        for i, step_name in enumerate(top_steps):
-            sdata = step_avg[step_avg["step_name"] == step_name].sort_values("case_num")
-            ax.plot(sdata["case_num"], sdata["rating_num"],
-                    marker="o", linewidth=1.8, markersize=4,
-                    color=colors[i], label=step_name)
-
-        ax.set_xlabel("Case Number", fontsize=9)
-        ax.set_ylabel("Avg Rating (0=Not Done → 5=Auto)", fontsize=9)
-        ax.set_yticks(range(6))
-        ax.set_yticklabels(["Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"], fontsize=7)
-        ax.set_ylim(-0.3, 5.3)
-        ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-        ax.legend(loc="lower right", fontsize=7, ncol=2)
-        ax.grid(axis="y", alpha=0.25)
-        ax.spines[["top", "right"]].set_visible(False)
-
-        st.pyplot(fig, transparent=True)
-        plt.close(fig)
 
     # ── Excel export ──────────────────────────────────────
     st.markdown("---")
