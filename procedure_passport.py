@@ -888,6 +888,9 @@ elif page == "comments":
             go_to("home")
         st.stop()
 
+    # Deduplicate cases to prevent a fan-out if the sheet has duplicate rows.
+    cases_df = cases_df.drop_duplicates(subset=["case_id"])
+
     res_cases = cases_df[cases_df["resident_email"] == resident].copy()
     res_cases["notes"] = res_cases["notes"].fillna("").astype(str)
     res_cases = res_cases[res_cases["notes"].str.strip() != ""]
@@ -897,13 +900,16 @@ elif page == "comments":
         if st.button("⬅️ Back to Home"):
             go_to("home")
     else:
-        # Merge in human-readable attending name (handle magic_ IDs)
+        # Resolve attending names — magic_ IDs never appear in the attendings sheet,
+        # so we decode them directly from the ID string instead of joining.
         atnds_lookup = dict(zip(atnds_df["attending_id"], atnds_df["attending_name"]))
         res_cases["attending_name"] = res_cases["attending_id"].apply(
             lambda aid: attending_display_name(str(aid), atnds_lookup)
         )
 
-        merged = res_cases.merge(procs_df[["procedure_id", "procedure_name"]], on="procedure_id", how="left")
+        # Deduplicate procs so a fanout can't multiply rows.
+        procs_dedup = procs_df.drop_duplicates(subset=["procedure_id"])
+        merged = res_cases.merge(procs_dedup[["procedure_id", "procedure_name"]], on="procedure_id", how="left")
         merged = merged.rename(columns={
             "date":                "Date",
             "procedure_name":      "Procedure",
@@ -962,6 +968,12 @@ elif page == "cumulative":
     for col in ["case_complexity", "overall_performance"]:
         if col not in scores_df.columns:
             scores_df[col] = pd.NA
+
+    # Deduplicate all lookup tables before any join so duplicate sheet rows
+    # can't produce phantom extra rows in the dashboard.
+    cases_df  = cases_df.drop_duplicates(subset=["case_id"])
+    scores_df = scores_df.drop_duplicates(subset=["case_id", "step_id"])
+    steps_df  = steps_df.drop_duplicates(subset=["step_id"])
 
     res_cases = cases_df[cases_df["resident_email"] == resident]
     if res_cases.empty:
