@@ -58,10 +58,10 @@ for _k, _v in _defaults.items():
 # ─────────────────────────────────────────────
 ADMINS = ["pjenkins9@gmail.com"]
 
-RATING_OPTIONS = ["Not Assessed", "Not Done", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
+RATING_OPTIONS = ["Not Assessed", "Shown/Told", "Not Yet", "Steer", "Prompt", "Back up", "Auto"]
 RATING_TO_NUM  = {
     "Not Assessed": -1,
-    "Not Done":      0,
+    "Shown/Told":    0,
     "Not Yet":       1,
     "Steer":         2,
     "Prompt":        3,
@@ -69,8 +69,8 @@ RATING_TO_NUM  = {
     "Auto":          5,
 }
 RATING_HEX = {
-    "Not Assessed": "#E0E0E0",
-    "Not Done":     "#D3D3D3",
+    "Not Assessed": "#FFFFFF",  # white/empty — explicitly rated as not assessed
+    "Shown/Told":   "#9E9E9E",  # dark gray — explicitly shown or told
     "Not Yet":      "#FF4D4D",
     "Steer":        "#FF944D",
     "Prompt":       "#FFD633",
@@ -81,6 +81,19 @@ RATING_COLOR = {
     k: f"background-color:{v}; color:{'white' if k in ('Not Yet','Auto') else 'black'};"
     for k, v in RATING_HEX.items()
 }
+
+def fmt_date(d):
+    """Format a date value as MM-DD-YYYY; pass through non-date strings unchanged."""
+    try:
+        if pd.isna(d):
+            return ""
+    except TypeError:
+        pass
+    try:
+        return pd.Timestamp(d).strftime("%m-%d-%Y")
+    except Exception:
+        return str(d)
+
 
 COMPLEXITY_HEX = {
     "Straight Forward": "#C8E6C9",
@@ -337,6 +350,28 @@ if _logged_in and st.session_state["page"] not in ("login", "attending_assessmen
             del st.session_state[_k]
         st.cache_data.clear()
         st.rerun()
+
+# ── Sidebar rating legend (always visible) ────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Rating Scale**")
+_LEGEND_ITEMS = [
+    ("Not Assessed",  "#FFFFFF", "1px solid #aaa"),
+    ("Shown/Told",    "#9E9E9E", ""),
+    ("Not Yet",       "#FF4D4D", ""),
+    ("Steer",         "#FF944D", ""),
+    ("Prompt",        "#FFD633", ""),
+    ("Back up",       "#99E699", ""),
+    ("Auto",          "#33CC33", ""),
+]
+for _label, _color, _border in _LEGEND_ITEMS:
+    _border_css = f"border:{_border};" if _border else ""
+    st.sidebar.markdown(
+        f'<span style="display:inline-block;width:13px;height:13px;'
+        f'background:{_color};{_border_css}border-radius:2px;'
+        f'margin-right:6px;vertical-align:middle;"></span>{_label}',
+        unsafe_allow_html=True,
+    )
+st.sidebar.caption("On mobile: tap ≡ at top left to view legend")
 
 # ─────────────────────────────────────────────
 # SHARED CSS
@@ -693,8 +728,8 @@ elif page == "start":
     proc_map = dict(zip(procs["procedure_name"], procs["procedure_id"]))
     atnd_map = dict(zip(atnds["attending_name"], atnds["attending_id"]))
 
-    procedure = st.selectbox("Procedure", list(proc_map.keys()))
-    attending = st.selectbox("Attending",  list(atnd_map.keys()))
+    procedure = st.selectbox("Procedure", sorted(proc_map.keys()))
+    attending = st.selectbox("Attending",  sorted(atnd_map.keys()))
     case_date = st.date_input("Date", st.session_state["date"])
 
     st.session_state["procedure_id"] = proc_map[procedure]
@@ -736,7 +771,7 @@ elif page == "start":
 # ════════════════════════════════════════════════════════════
 elif page == "assessment":
     try:
-        _, _, steps_df, _ = load_refs()
+        _, proc_df, steps_df, _ = load_refs()
     except ConnectionError as exc:
         show_gs_error(exc)
         if st.button("⬅️ Back to Start"):
@@ -750,7 +785,15 @@ elif page == "assessment":
             go_to("start")
         st.stop()
 
-    st.title("📝 Assessment")
+    # Resolve procedure name for the page title (Fix 3)
+    _proc_rows = proc_df.loc[proc_df["procedure_id"] == st.session_state["procedure_id"], "procedure_name"].values
+    _proc_name = _proc_rows[0] if len(_proc_rows) else "Assessment"
+    st.title(f"📝 {_proc_name} Assessment")
+
+    # Back button placed at the top, clearly separated from Finish (Fix 7)
+    if st.button("⬅️ Back to Start", key="back_top"):
+        go_to("start")
+    st.markdown("---")
 
     st.session_state["case_complexity"] = st.selectbox(
         "Case Complexity",
@@ -762,10 +805,15 @@ elif page == "assessment":
 
     st.markdown("#### Step-Level Ratings")
 
+    # Fix 5: also reset the widget key state so selectboxes visually update
     if st.button("↺ Mark All as 'Not Assessed'"):
         for _, row in steps.iterrows():
             st.session_state["scores"][row["step_id"]] = "Not Assessed"
+            st.session_state[f"score_{row['step_id']}"] = "Not Assessed"
+        st.rerun()
 
+    # Fix 6: reverting to "Not Assessed" is supported — "Not Assessed" is index 0
+    # in RATING_OPTIONS so the user can always select it from the dropdown.
     for _, row in steps.iterrows():
         step_id   = row["step_id"]
         step_name = row["step_name"]
@@ -789,31 +837,28 @@ elif page == "assessment":
     if all(v == "Not Assessed" for v in st.session_state["scores"].values()):
         st.warning("⚠️ All steps are marked 'Not Assessed'.")
 
+    # Fix 7: Finish button alone at the bottom with a confirmation note
     st.markdown("---")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        if st.button("⬅️ Back to Start"):
-            go_to("start")
-    with col2:
-        if st.button("Finish & Save →", type="primary", use_container_width=True):
-            if st.session_state["overall_performance"] == O_SCORE_OPTIONS[0]:
-                st.warning("Please select an Overall Performance rating.")
-            else:
-                try:
-                    st.session_state["current_case_id"] = save_case(
-                        resident_email=st.session_state["resident"],
-                        date=st.session_state["date"],
-                        specialty_id=st.session_state["specialty_id"],
-                        procedure_id=st.session_state["procedure_id"],
-                        attending_id=st.session_state["attending_id"],
-                        scores_dict=st.session_state["scores"],
-                        case_complexity=st.session_state["case_complexity"],
-                        overall_performance=st.session_state["overall_performance"],
-                        notes=st.session_state.get("notes", ""),
-                    )
-                    go_to("dashboard")
-                except ConnectionError as exc:
-                    show_gs_error(exc)
+    st.caption("✅ The case is saved automatically when you click Finish & Save.")
+    if st.button("🏁 Finish & Save →", type="primary", use_container_width=True):
+        if st.session_state["overall_performance"] == O_SCORE_OPTIONS[0]:
+            st.warning("Please select an Overall Performance rating.")
+        else:
+            try:
+                st.session_state["current_case_id"] = save_case(
+                    resident_email=st.session_state["resident"],
+                    date=st.session_state["date"],
+                    specialty_id=st.session_state["specialty_id"],
+                    procedure_id=st.session_state["procedure_id"],
+                    attending_id=st.session_state["attending_id"],
+                    scores_dict=st.session_state["scores"],
+                    case_complexity=st.session_state["case_complexity"],
+                    overall_performance=st.session_state["overall_performance"],
+                    notes=st.session_state.get("notes", ""),
+                )
+                go_to("dashboard")
+            except ConnectionError as exc:
+                show_gs_error(exc)
 
 
 # ════════════════════════════════════════════════════════════
@@ -839,6 +884,7 @@ elif page == "dashboard":
 
     meta_col1, meta_col2 = st.columns(2)
     with meta_col1:
+        st.markdown(f"**Date:** {fmt_date(st.session_state.get('date', ''))}")
         st.markdown(f"**Case Complexity:** {st.session_state.get('case_complexity', '—')}")
     with meta_col2:
         st.markdown(f"**Overall Performance:** {st.session_state.get('overall_performance', '—')}")
@@ -910,17 +956,48 @@ elif page == "comments":
         procs_dedup = procs_df.drop_duplicates(subset=["procedure_id"])
         merged = res_cases.merge(procs_dedup[["procedure_id", "procedure_name"]], on="procedure_id", how="left")
         merged = merged.rename(columns={
-            "date":                "Date",
-            "procedure_name":      "Procedure",
-            "attending_name":      "Attending",
-            "case_complexity":     "Case Complexity",
-            "overall_performance": "Overall Performance",
-            "notes":               "Comments",
+            "date":           "Date",
+            "procedure_name": "Procedure",
+            "attending_name": "Attending",
+            "notes":          "Comments",
         })
-        merged = merged[["Date", "Procedure", "Attending",
-                          "Case Complexity", "Overall Performance", "Comments"]].sort_values("Date", ascending=False)
+        # Fix 1: format dates as MM-DD-YYYY
+        merged["Date"] = merged["Date"].apply(fmt_date)
+        # Fix 8: remove Case Complexity and Overall Performance columns
+        merged = merged[["Date", "Procedure", "Attending", "Comments"]].sort_values("Date", ascending=False)
 
-        st.dataframe(merged, use_container_width=True)
+        # Fix 8: procedure filter dropdown
+        _proc_opts = ["All Procedures"] + sorted(merged["Procedure"].dropna().unique().tolist())
+        _proc_filter = st.selectbox("Filter by Procedure", _proc_opts, key="comments_proc_filter")
+        if _proc_filter != "All Procedures":
+            merged = merged[merged["Procedure"] == _proc_filter]
+
+        # Fix 8: render with wrapped Comments column using HTML table
+        st.markdown("""
+<style>
+.comments-tbl {width:100%;border-collapse:collapse;font-size:0.88rem;}
+.comments-tbl th {background:var(--secondary-background-color);padding:8px 10px;
+    text-align:left;border-bottom:2px solid #ccc;font-weight:600;}
+.comments-tbl td {padding:8px 10px;vertical-align:top;border-bottom:1px solid var(--secondary-background-color);}
+.comments-tbl td.comments-col {white-space:pre-wrap;word-break:break-word;min-width:260px;}
+</style>""", unsafe_allow_html=True)
+
+        _rows_html = ""
+        for _, r in merged.reset_index(drop=True).iterrows():
+            _rows_html += (
+                f"<tr>"
+                f"<td>{r['Date']}</td>"
+                f"<td>{r['Procedure']}</td>"
+                f"<td>{r['Attending']}</td>"
+                f"<td class='comments-col'>{str(r['Comments']).replace(chr(10), '<br>')}</td>"
+                f"</tr>"
+            )
+        st.markdown(
+            "<table class='comments-tbl'>"
+            "<thead><tr><th>Date</th><th>Procedure</th><th>Attending</th><th>Comments</th></tr></thead>"
+            f"<tbody>{_rows_html}</tbody></table>",
+            unsafe_allow_html=True,
+        )
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -1039,94 +1116,141 @@ elif page == "cumulative":
 
     pivot = pivot[["date", "attending_name", "case_id", "case_complexity", "overall_performance"] + ordered_steps]
 
-    # ── Screenshot-friendly heatmap ───────────────────────
+    # ── Screenshot-friendly heatmap (Fixes 9-15) ─────────────────
+    proc_display_name = procs_map.get(selected_proc, selected_proc)
     st.markdown(
-        "### Progress Heatmap\n"
+        f"### {proc_display_name} — Progress Heatmap\n"
         "Most recent cases at the top. Zoom out to screenshot this grid. 📸"
     )
 
-    screenshot_df = pivot.sort_values("date", ascending=False).drop(columns=["case_id"])
-    all_cols      = list(screenshot_df.columns)
+    # Sort cases by date (desc) for Most Recent computation and display
+    pivot_sorted = pivot.sort_values("date", ascending=False)
 
+    # Fix 14: Compute "Most Recent" summary row — per step, first non-null value
+    _mr = {"date": "📌 Most Recent", "attending_name": "", "case_complexity": pd.NA, "overall_performance": pd.NA}
+    for _s in ordered_steps:
+        _vals = pivot_sorted[_s].dropna()
+        _mr[_s] = _vals.iloc[0] if not _vals.empty else pd.NA
+
+    # Fix 14: Compute "Best" summary row — per step, highest rating_num ever
+    _best = {"date": "🏆 Best", "attending_name": "", "case_complexity": pd.NA, "overall_performance": pd.NA}
+    for _s in ordered_steps:
+        _vals = pivot_sorted[_s].dropna()
+        if _vals.empty:
+            _best[_s] = pd.NA
+        else:
+            _best[_s] = max(_vals.tolist(), key=lambda v: RATING_TO_NUM.get(v, -1))
+
+    _summary_df = pd.DataFrame([_mr, _best])
+    _meta_cols  = ["date", "attending_name", "case_complexity", "overall_performance"]
+
+    # Build display df: summary rows first, then sorted case rows (case_id dropped)
+    display_df = pd.concat(
+        [_summary_df[_meta_cols + ordered_steps],
+         pivot_sorted.drop(columns=["case_id"])[_meta_cols + ordered_steps]],
+        ignore_index=True,
+    )
+
+    # Fix 1: format dates as MM-DD-YYYY (leaves summary labels unchanged)
+    display_df["date"] = display_df["date"].apply(fmt_date)
+
+    # Fix 11: rename metadata columns
+    display_df = display_df.rename(columns={
+        "date":                "Date",
+        "attending_name":      "Attending",
+        "case_complexity":     "Case Complexity",
+        "overall_performance": "Overall Performance",
+    })
+    all_cols = list(display_df.columns)
+
+    # Fix 15: Never Attempted (NaN) → light gray; Shown/Told → dark gray (via RATING_HEX)
     def _color_step(val):
-        if pd.isna(val):
-            return ""
-        return f"background-color: {RATING_HEX.get(val, '')}"
+        if pd.isna(val) or val == "":
+            return "background-color: #E0E0E0"  # Never Attempted
+        color = RATING_HEX.get(val, "")
+        return f"background-color: {color}" if color else ""
 
     def _color_complexity(val):
-        if pd.isna(val):
+        if pd.isna(val) or val == "":
             return ""
         return f"background-color: {COMPLEXITY_HEX.get(val, '')}"
 
     def _color_o_score(val):
-        if not isinstance(val, str):
+        if not isinstance(val, str) or val == "":
             return ""
         key = val.split("-")[0].strip()
         return f"background-color: {O_SCORE_HEX.get(key, '')}"
 
-    styled = screenshot_df.style
+    styled = display_df.style
     if ordered_steps:
         styled = styled.map(_color_step, subset=ordered_steps)
     styled = (
         styled
-        .map(_color_complexity, subset=["case_complexity"])
-        .map(_color_o_score,    subset=["overall_performance"])
+        .map(_color_complexity, subset=["Case Complexity"])
+        .map(_color_o_score,    subset=["Overall Performance"])
         .hide(axis="index")
         .set_properties(
-            subset=["date", "attending_name"],
+            subset=["Date", "Attending"],
             **{"min-width": "120px", "white-space": "nowrap"},
         )
+        # Fix 13: same compact width as step columns, color-only
         .set_properties(
-            subset=["case_complexity", "overall_performance"],
-            **{"min-width": "90px", "text-align": "center"},
+            subset=["Case Complexity", "Overall Performance"],
+            **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
         )
     )
     if ordered_steps:
         styled = styled.set_properties(
             subset=ordered_steps,
-            **{"min-width": "40px", "max-width": "40px", "text-align": "center"},
+            **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
         )
 
     table_styles = [
         {"selector": "table",       "props": [("border-collapse", "collapse"), ("margin", "0 auto")]},
         {"selector": "th, td",      "props": [("border", "1px solid var(--secondary-background-color)"),
                                                ("padding", "4px"), ("font-size", "0.8rem")]},
+        # Fix 10: bottom-justify all column headers
         {"selector": "th.col_heading", "props": [("text-align", "center"), ("vertical-align", "bottom"),
                                                    ("font-weight", "600")]},
     ]
+    # Fix 10 & 12: vertical text, bottom-justified for step columns AND Complexity/O-score
     for idx, col_name in enumerate(all_cols):
-        if col_name in ordered_steps:
+        if col_name in ordered_steps or col_name in ("Case Complexity", "Overall Performance"):
             table_styles.append({
                 "selector": f"th.col_heading.level0.col{idx}",
                 "props": [("writing-mode", "vertical-rl"), ("text-orientation", "mixed"),
-                           ("white-space", "nowrap"), ("font-size", "0.75rem"), ("padding", "4px 2px")],
+                           ("white-space", "nowrap"), ("font-size", "0.75rem"),
+                           ("padding", "4px 2px"), ("vertical-align", "bottom"),
+                           ("min-width", "40px"), ("max-width", "40px")],
             })
 
-    comp_idx = all_cols.index("case_complexity")
-    o_idx    = all_cols.index("overall_performance")
+    # Fix 13: color-only (transparent text) for Complexity and O-score data cells
+    comp_idx = all_cols.index("Case Complexity")
+    o_idx    = all_cols.index("Overall Performance")
     table_styles += [
-        {"selector": f"td.col{comp_idx}", "props": [("color", "transparent")]},
-        {"selector": f"td.col{o_idx}",    "props": [("color", "transparent")]},
+        {"selector": f"td.col{comp_idx}", "props": [("color", "transparent"), ("width", "40px")]},
+        {"selector": f"td.col{o_idx}",    "props": [("color", "transparent"), ("width", "40px")]},
     ]
 
     styled = styled.set_table_styles(table_styles)
     st.markdown(styled.to_html(), unsafe_allow_html=True)
 
     # ── Legends ───────────────────────────────────────────
-    def _swatch(color, label):
+    def _swatch(color, label, border=""):
+        _bdr = f"border:{border};" if border else ""
         return (
             f'<span class="legend-item">'
-            f'<span class="legend-swatch" style="background-color:{color};"></span>{label}'
+            f'<span class="legend-swatch" style="background-color:{color};{_bdr}"></span>{label}'
             f'</span>'
         )
 
     st.markdown("#### Ratings Legend")
-    st.markdown(
-        '<div class="legend-row">' +
-        "".join(_swatch(v, k) for k, v in RATING_HEX.items()) +
-        "</div>",
-        unsafe_allow_html=True,
+    _rating_legend_html = "".join(
+        _swatch(v, k, "1px solid #aaa" if k == "Not Assessed" else "")
+        for k, v in RATING_HEX.items()
     )
+    _rating_legend_html += _swatch("#E0E0E0", "Never Attempted")
+    st.markdown('<div class="legend-row">' + _rating_legend_html + "</div>", unsafe_allow_html=True)
 
     st.markdown("#### Case Complexity")
     st.markdown(
@@ -1149,12 +1273,22 @@ elif page == "cumulative":
     st.markdown("---")
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        pivot.to_excel(writer, index=False, sheet_name="Cumulative")
+        # Rename pivot columns for readability; fix 1: date as MM-DD-YYYY
+        pivot_excel = pivot.copy()
+        pivot_excel["date"] = pivot_excel["date"].apply(fmt_date)
+        pivot_excel = pivot_excel.rename(columns={
+            "date":                "Date",
+            "attending_name":      "Attending",
+            "case_id":             "Case ID",
+            "case_complexity":     "Case Complexity",
+            "overall_performance": "Overall Performance",
+        })
+        pivot_excel.to_excel(writer, index=False, sheet_name="Cumulative")
         ws_xl = writer.sheets["Cumulative"]
         from openpyxl.styles import PatternFill, Font
 
         step_fill_map = {k: v.lstrip("#") for k, v in RATING_HEX.items() if k not in ("Not Assessed",)}
-        step_fill_map["Not Assessed"] = "E0E0E0"
+        step_fill_map["Not Assessed"] = "E0E0E0"  # light gray in Excel
 
         start_col = 6
         for xl_row in ws_xl.iter_rows(
@@ -1199,20 +1333,24 @@ elif page == "attending_assessment":
     display_attending = attending_name.replace("_", " ")
 
     st.title("📝 Attending Evaluation")
+    try:
+        _, proc_df_att, steps_df, _ = load_refs()
+    except ConnectionError as exc:
+        show_gs_error(exc)
+        st.stop()
+
+    # Resolve procedure name for display (Fix 3)
+    _att_proc_rows = proc_df_att.loc[proc_df_att["procedure_id"] == procedure_id, "procedure_name"].values
+    _att_proc_name = _att_proc_rows[0] if len(_att_proc_rows) else procedure_id
+
     st.markdown(
         f'<div class="pp-card">'
         f'<b>Resident:</b> {resident_email}<br>'
-        f'<b>Procedure:</b> <code>{procedure_id}</code><br>'
+        f'<b>Procedure:</b> {_att_proc_name}<br>'
         f'<b>Attending:</b> {display_attending}'
         f'</div>',
         unsafe_allow_html=True,
     )
-
-    try:
-        _, _, steps_df, _ = load_refs()
-    except ConnectionError as exc:
-        show_gs_error(exc)
-        st.stop()
 
     steps = steps_df[steps_df["procedure_id"] == procedure_id].sort_values("step_order")
     if steps.empty:
@@ -1285,8 +1423,8 @@ elif page == "attending_confirmation":
         f'<div class="pp-card">'
         f'<b>Resident:</b> {sub["resident_email"]}<br>'
         f'<b>Attending:</b> {sub["attending_name"]}<br>'
-        f'<b>Procedure:</b> <code>{sub["procedure_id"]}</code><br>'
-        f'<b>Date:</b> {sub["date"]}<br>'
+        f'<b>Procedure:</b> {sub["procedure_id"]}<br>'
+        f'<b>Date:</b> {fmt_date(sub["date"])}<br>'
         f'<b>Case Complexity:</b> {sub["case_complexity"]}<br>'
         f'<b>Overall Performance:</b> {sub["overall_performance"]}<br>'
         f'<b>Case ID:</b> <code>{sub["case_id"]}</code>'
