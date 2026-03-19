@@ -351,27 +351,28 @@ if _logged_in and st.session_state["page"] not in ("login", "attending_assessmen
         st.cache_data.clear()
         st.rerun()
 
-# ── Sidebar rating legend (always visible) ────────────────
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Rating Scale**")
-_LEGEND_ITEMS = [
-    ("Not Assessed",  "#FFFFFF", "1px solid #aaa"),
-    ("Shown/Told",    "#9E9E9E", ""),
-    ("Not Yet",       "#FF4D4D", ""),
-    ("Steer",         "#FF944D", ""),
-    ("Prompt",        "#FFD633", ""),
-    ("Back up",       "#99E699", ""),
-    ("Auto",          "#33CC33", ""),
-]
-for _label, _color, _border in _LEGEND_ITEMS:
-    _border_css = f"border:{_border};" if _border else ""
-    st.sidebar.markdown(
-        f'<span style="display:inline-block;width:13px;height:13px;'
-        f'background:{_color};{_border_css}border-radius:2px;'
-        f'margin-right:6px;vertical-align:middle;"></span>{_label}',
-        unsafe_allow_html=True,
-    )
-st.sidebar.caption("On mobile: tap ≡ at top left to view legend")
+# ── Sidebar rating legend (shown only on relevant pages) ──
+if st.session_state.get("page") in ("start", "assessment", "dashboard", "cumulative", "attending_assessment"):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Rating Scale**")
+    _LEGEND_ITEMS = [
+        ("Not Assessed",  "#FFFFFF", "1px solid #aaa"),
+        ("Shown/Told",    "#9E9E9E", ""),
+        ("Not Yet",       "#FF4D4D", ""),
+        ("Steer",         "#FF944D", ""),
+        ("Prompt",        "#FFD633", ""),
+        ("Back up",       "#99E699", ""),
+        ("Auto",          "#33CC33", ""),
+    ]
+    for _label, _color, _border in _LEGEND_ITEMS:
+        _border_css = f"border:{_border};" if _border else ""
+        st.sidebar.markdown(
+            f'<span style="display:inline-block;width:13px;height:13px;'
+            f'background:{_color};{_border_css}border-radius:2px;'
+            f'margin-right:6px;vertical-align:middle;"></span>{_label}',
+            unsafe_allow_html=True,
+        )
+    st.sidebar.caption("On mobile: tap ≡ at top left to view legend")
 
 # ─────────────────────────────────────────────
 # SHARED CSS
@@ -1163,6 +1164,16 @@ elif page == "cumulative":
     })
     all_cols = list(display_df.columns)
 
+    # Fix 13: store originals for coloring, then blank display values so no text shows
+    _orig_complexity = display_df["Case Complexity"].copy()
+    _orig_o_score    = display_df["Overall Performance"].copy()
+    display_df["Case Complexity"] = display_df["Case Complexity"].where(
+        display_df["Case Complexity"].isna() | (display_df["Case Complexity"] == ""), " "
+    )
+    display_df["Overall Performance"] = display_df["Overall Performance"].where(
+        display_df["Overall Performance"].isna() | (display_df["Overall Performance"] == ""), " "
+    )
+
     # Fix 15: Never Attempted (NaN) → light gray; Shown/Told → dark gray (via RATING_HEX)
     def _color_step(val):
         if pd.isna(val) or val == "":
@@ -1181,13 +1192,20 @@ elif page == "cumulative":
         key = val.split("-")[0].strip()
         return f"background-color: {O_SCORE_HEX.get(key, '')}"
 
+    # Apply complexity/o-score colors from original values (display values are blanked)
+    def _apply_complexity_colors(col):
+        return [_color_complexity(v) for v in _orig_complexity]
+
+    def _apply_o_score_colors(col):
+        return [_color_o_score(v) for v in _orig_o_score]
+
     styled = display_df.style
     if ordered_steps:
         styled = styled.map(_color_step, subset=ordered_steps)
     styled = (
         styled
-        .map(_color_complexity, subset=["Case Complexity"])
-        .map(_color_o_score,    subset=["Overall Performance"])
+        .apply(_apply_complexity_colors, subset=["Case Complexity"], axis=0)
+        .apply(_apply_o_score_colors,    subset=["Overall Performance"], axis=0)
         .hide(axis="index")
         .set_properties(
             subset=["Date", "Attending"],
@@ -1223,14 +1241,6 @@ elif page == "cumulative":
                            ("padding", "4px 2px"), ("vertical-align", "bottom"),
                            ("min-width", "40px"), ("max-width", "40px")],
             })
-
-    # Fix 13: color-only (transparent text) for Complexity and O-score data cells
-    comp_idx = all_cols.index("Case Complexity")
-    o_idx    = all_cols.index("Overall Performance")
-    table_styles += [
-        {"selector": f"td.col{comp_idx}", "props": [("color", "transparent"), ("width", "40px")]},
-        {"selector": f"td.col{o_idx}",    "props": [("color", "transparent"), ("width", "40px")]},
-    ]
 
     styled = styled.set_table_styles(table_styles)
     st.markdown(styled.to_html(), unsafe_allow_html=True)
