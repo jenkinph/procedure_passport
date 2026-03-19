@@ -1164,17 +1164,20 @@ elif page == "cumulative":
     })
     all_cols = list(display_df.columns)
 
-    # Fix 13: store originals for coloring, then blank display values so no text shows
-    _orig_complexity = display_df["Case Complexity"].copy()
-    _orig_o_score    = display_df["Overall Performance"].copy()
-    display_df["Case Complexity"] = display_df["Case Complexity"].where(
-        display_df["Case Complexity"].isna() | (display_df["Case Complexity"] == ""), " "
-    )
-    display_df["Overall Performance"] = display_df["Overall Performance"].where(
-        display_df["Overall Performance"].isna() | (display_df["Overall Performance"] == ""), " "
-    )
+    # Prevent "nan" text in Date/Attending for summary rows
+    display_df["Date"]      = display_df["Date"].fillna("")
+    display_df["Attending"] = display_df["Attending"].fillna("")
 
-    # Fix 15: Never Attempted (NaN) → light gray; Shown/Told → dark gray (via RATING_HEX)
+    # Step 1: store original values for ALL rating columns before blanking
+    _rating_cols = [c for c in ordered_steps + ["Case Complexity", "Overall Performance"]
+                    if c in display_df.columns]
+    _orig_vals = {col: display_df[col].copy() for col in _rating_cols}
+
+    # Step 2: blank ALL rating columns so no text appears in any cell
+    for _c in _rating_cols:
+        display_df[_c] = " "
+
+    # Color functions — operate on original (pre-blank) values
     def _color_step(val):
         if pd.isna(val) or val == "":
             return "background-color: #E0E0E0"  # Never Attempted
@@ -1192,16 +1195,26 @@ elif page == "cumulative":
         key = val.split("-")[0].strip()
         return f"background-color: {O_SCORE_HEX.get(key, '')}"
 
-    # Apply complexity/o-score colors from original values (display values are blanked)
+    # Build styler — all colors from original values, display values are blank
+    styled = display_df.style
+
+    if ordered_steps:
+        _orig_steps_df = pd.DataFrame(
+            {c: _orig_vals[c] for c in ordered_steps}, index=display_df.index
+        )
+        def _color_steps_matrix(df):
+            return pd.DataFrame(
+                {col: [_color_step(v) for v in _orig_steps_df[col]] for col in df.columns},
+                index=df.index,
+            )
+        styled = styled.apply(_color_steps_matrix, subset=ordered_steps, axis=None)
+
     def _apply_complexity_colors(col):
-        return [_color_complexity(v) for v in _orig_complexity]
+        return [_color_complexity(v) for v in _orig_vals["Case Complexity"]]
 
     def _apply_o_score_colors(col):
-        return [_color_o_score(v) for v in _orig_o_score]
+        return [_color_o_score(v) for v in _orig_vals["Overall Performance"]]
 
-    styled = display_df.style
-    if ordered_steps:
-        styled = styled.map(_color_step, subset=ordered_steps)
     styled = (
         styled
         .apply(_apply_complexity_colors, subset=["Case Complexity"], axis=0)
@@ -1211,7 +1224,6 @@ elif page == "cumulative":
             subset=["Date", "Attending"],
             **{"min-width": "120px", "white-space": "nowrap"},
         )
-        # Fix 13: same compact width as step columns, color-only
         .set_properties(
             subset=["Case Complexity", "Overall Performance"],
             **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
