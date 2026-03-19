@@ -1249,7 +1249,8 @@ elif page == "cumulative":
             table_styles.append({
                 "selector": f"th.col_heading.level0.col{idx}",
                 "props": [("writing-mode", "vertical-rl"), ("text-orientation", "mixed"),
-                           ("white-space", "nowrap"), ("font-size", "0.75rem"),
+                           ("white-space", "normal"), ("overflow-wrap", "break-word"),
+                           ("max-height", "120px"), ("font-size", "0.75rem"),
                            ("padding", "4px 2px"), ("vertical-align", "bottom"),
                            ("min-width", "40px"), ("max-width", "40px")],
             })
