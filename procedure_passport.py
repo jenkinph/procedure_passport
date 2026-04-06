@@ -1149,6 +1149,19 @@ elif page == "cumulative":
         .tolist()
     )
 
+    # Build display names for step column headers.
+    # With writing-mode: vertical-rl + rotate(180deg), text's physical top maps to the
+    # visual BOTTOM, so overflow clips the physical bottom = visual TOP (end of name).
+    # Pre-truncating to the LAST N chars ensures the distinctive end of each step name
+    # is what's visible at the visual bottom rather than the generic beginning.
+    def _fmt_step_hdr(name, max_len=18):
+        if isinstance(name, str) and len(name) > max_len:
+            return "\u2026" + name[-(max_len - 1):]
+        return name if isinstance(name, str) else name
+
+    _step_display        = {s: _fmt_step_hdr(s) for s in ordered_steps}
+    ordered_steps_display = [_step_display[s] for s in ordered_steps]
+
     # ── Pivot for heatmap ─────────────────────────────────
     pivot = proc_data.pivot_table(
         index=["date", "attending_name", "case_id", "case_complexity", "overall_performance"],
@@ -1202,12 +1215,13 @@ elif page == "cumulative":
     # Fix 1: format dates as MM-DD-YYYY (leaves summary labels unchanged)
     display_df["date"] = display_df["date"].apply(fmt_date)
 
-    # Fix 11: rename metadata columns
+    # Fix 11: rename metadata columns; also apply display truncations to step headers
     display_df = display_df.rename(columns={
         "date":                "Date",
         "attending_name":      "Attending",
         "case_complexity":     "Case Complexity",
         "overall_performance": "Overall Performance",
+        **_step_display,
     })
     all_cols = list(display_df.columns)
 
@@ -1216,7 +1230,7 @@ elif page == "cumulative":
     display_df["Attending"] = display_df["Attending"].fillna("")
 
     # Step 1: store original values for ALL rating columns before blanking
-    _rating_cols = [c for c in ordered_steps + ["Case Complexity", "Overall Performance"]
+    _rating_cols = [c for c in ordered_steps_display + ["Case Complexity", "Overall Performance"]
                     if c in display_df.columns]
     _orig_vals = {col: display_df[col].copy() for col in _rating_cols}
 
@@ -1245,16 +1259,16 @@ elif page == "cumulative":
     # Build styler — all colors from original values, display values are blank
     styled = display_df.style
 
-    if ordered_steps:
+    if ordered_steps_display:
         _orig_steps_df = pd.DataFrame(
-            {c: _orig_vals[c] for c in ordered_steps}, index=display_df.index
+            {c: _orig_vals[c] for c in ordered_steps_display}, index=display_df.index
         )
         def _color_steps_matrix(df):
             return pd.DataFrame(
                 {col: [_color_step(v) for v in _orig_steps_df[col]] for col in df.columns},
                 index=df.index,
             )
-        styled = styled.apply(_color_steps_matrix, subset=ordered_steps, axis=None)
+        styled = styled.apply(_color_steps_matrix, subset=ordered_steps_display, axis=None)
 
     def _apply_complexity_colors(col):
         return [_color_complexity(v) for v in _orig_vals["Case Complexity"]]
@@ -1276,9 +1290,9 @@ elif page == "cumulative":
             **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
         )
     )
-    if ordered_steps:
+    if ordered_steps_display:
         styled = styled.set_properties(
-            subset=ordered_steps,
+            subset=ordered_steps_display,
             **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
         )
 
@@ -1302,15 +1316,19 @@ elif page == "cumulative":
         {"selector": "tbody tr:nth-child(2) td:first-child",
          "props": [("text-align", "right"), ("font-weight", "600"), ("padding-right", "6px")]},
     ]
-    # Fix 10 & 12: vertical text bottom-to-top, single-line with ellipsis, no wrapping
+    # Vertical text: bottom-to-top, single-line, anchored at visual bottom
+    # rotate(180deg) maps physical-top → visual-bottom; vertical-align:bottom keeps
+    # text at the physical bottom which after rotation = visual top anchor for the header row.
+    # Python pre-truncation (last 17 chars) ensures the END of each step name is in the
+    # visible portion (visual bottom) rather than the beginning.
     for idx, col_name in enumerate(all_cols):
-        if col_name in ordered_steps or col_name in ("Case Complexity", "Overall Performance"):
+        if col_name in ordered_steps_display or col_name in ("Case Complexity", "Overall Performance"):
             table_styles.append({
                 "selector": f"th.col_heading.level0.col{idx}",
                 "props": [("writing-mode", "vertical-rl"), ("text-orientation", "mixed"),
                            ("transform", "rotate(180deg)"),
                            ("white-space", "nowrap"), ("overflow", "hidden"),
-                           ("max-height", "160px"), ("font-size", "0.75rem"),
+                           ("height", "180px"), ("font-size", "0.75rem"),
                            ("padding", "4px 2px"), ("vertical-align", "bottom"),
                            ("min-width", "40px"), ("max-width", "40px")],
             })
