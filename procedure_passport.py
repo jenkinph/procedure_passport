@@ -69,9 +69,9 @@ RATING_TO_NUM  = {
     "Auto":          5,
 }
 RATING_HEX = {
-    "Not Assessed": "#FFFFFF",  # white/empty — explicitly rated as not assessed
+    "Not Assessed": "#F0F0F0",  # white/empty — explicitly rated as not assessed
     "Shown/Told":   "#9E9E9E",  # dark gray — explicitly shown or told
-    "Not Yet":      "#FF4D4D",
+    "Not Yet":      "#378ADD",
     "Steer":        "#FF944D",
     "Prompt":       "#FFD633",
     "Back up":      "#99E699",
@@ -101,7 +101,7 @@ COMPLEXITY_HEX = {
     "Complex":          "#FFAB91",
 }
 O_SCORE_HEX = {
-    "1": "#FF4D4D",
+    "1": "#378ADD",
     "2": "#FF944D",
     "3": "#FFD633",
     "4": "#99E699",
@@ -351,18 +351,35 @@ if _logged_in and st.session_state["page"] not in ("login", "attending_assessmen
         st.cache_data.clear()
         st.rerun()
 
+# ── Sidebar nav shortcuts (shown when logged in on relevant pages) ──
+if _logged_in and st.session_state["page"] not in ("login", "attending_assessment", "attending_confirmation"):
+    st.sidebar.markdown("---")
+    if st.sidebar.button("➕ Start Assessment", key="sb_start"):
+        st.session_state["page"] = "start"
+        st.rerun()
+    if st.sidebar.button("📊 Cumulative Dashboard", key="sb_cumulative"):
+        st.session_state["page"] = "cumulative"
+        st.rerun()
+    if st.sidebar.button("💬 Comments Dashboard", key="sb_comments"):
+        st.session_state["page"] = "comments"
+        st.rerun()
+    if st.sidebar.button("🏠 Back to Home", key="sb_home"):
+        st.session_state["page"] = "home"
+        st.rerun()
+
 # ── Sidebar rating legend (shown only on relevant pages) ──
 if st.session_state.get("page") in ("start", "assessment", "dashboard", "cumulative", "attending_assessment"):
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Rating Scale**")
     _LEGEND_ITEMS = [
-        ("Not Assessed",  "#FFFFFF", "1px solid #aaa"),
-        ("Shown/Told",    "#9E9E9E", ""),
-        ("Not Yet",       "#FF4D4D", ""),
-        ("Steer",         "#FF944D", ""),
-        ("Prompt",        "#FFD633", ""),
-        ("Back up",       "#99E699", ""),
-        ("Auto",          "#33CC33", ""),
+        ("Not Assessed",   "#F0F0F0", "1px solid #aaa"),
+        ("Shown/Told",     "#9E9E9E", ""),
+        ("Not Yet",        "#378ADD", ""),
+        ("Steer",          "#FF944D", ""),
+        ("Prompt",         "#FFD633", ""),
+        ("Back up",        "#99E699", ""),
+        ("Auto",           "#33CC33", ""),
+        ("Never Attempted","#E0E0E0", ""),
     ]
     for _label, _color, _border in _LEGEND_ITEMS:
         _border_css = f"border:{_border};" if _border else ""
@@ -372,7 +389,6 @@ if st.session_state.get("page") in ("start", "assessment", "dashboard", "cumulat
             f'margin-right:6px;vertical-align:middle;"></span>{_label}',
             unsafe_allow_html=True,
         )
-    st.sidebar.caption("On mobile: tap ≡ at top left to view legend")
 
 # ─────────────────────────────────────────────
 # SHARED CSS
@@ -473,6 +489,8 @@ if page == "login":
 # ════════════════════════════════════════════════════════════
 elif page == "admin":
     st.title("⚙️ Admin Panel")
+    if st.button("🏠 Back to Home", key="admin_home_top"):
+        go_to("home")
 
     if st.button("🔄 Reload Data"):
         st.cache_data.clear()
@@ -655,6 +673,7 @@ elif page == "home":
     st.title(f"👋 Welcome back, {st.session_state['resident_name']}")
     st.markdown("_What would you like to do today?_")
     st.markdown("")
+    st.info("📱 On mobile: tap the ≡ icon at top left to access navigation and rating legend.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -687,6 +706,9 @@ elif page == "home":
 # ════════════════════════════════════════════════════════════
 elif page == "start":
     st.title("📋 Start Assessment")
+    if st.button("🏠 Back to Home", key="start_home_top"):
+        go_to("home")
+    st.info("📱 On mobile: tap the ≡ icon at top left to view the sidebar.")
 
     try:
         spec_df, proc_df, steps_df, atnd_df = load_refs()
@@ -730,7 +752,7 @@ elif page == "start":
     atnd_map = dict(zip(atnds["attending_name"], atnds["attending_id"]))
 
     procedure = st.selectbox("Procedure", sorted(proc_map.keys()))
-    attending = st.selectbox("Attending",  sorted(atnd_map.keys()))
+    attending = st.selectbox("Attending", sorted(atnd_map.keys(), key=lambda n: n.split()[-1] if n.split() else n))
     case_date = st.date_input("Date", st.session_state["date"])
 
     st.session_state["procedure_id"] = proc_map[procedure]
@@ -754,6 +776,7 @@ elif page == "start":
                 "Share this link with your attending so they can submit their evaluation directly:"
             )
             st.code(magic_url, language="text")
+            st.caption("On mobile: tap the link once for the copy button to appear.")
 
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 1, 2])
@@ -792,16 +815,23 @@ elif page == "assessment":
     st.title(f"📝 {_proc_name} Assessment")
 
     # Back button placed at the top, clearly separated from Finish (Fix 7)
-    if st.button("⬅️ Back to Start", key="back_top"):
-        go_to("start")
+    _top_cols_assess = st.columns([1, 1, 4])
+    with _top_cols_assess[0]:
+        if st.button("⬅️ Back to Start", key="back_top"):
+            go_to("start")
+    with _top_cols_assess[1]:
+        if st.button("🏠 Home", key="assess_home_top"):
+            go_to("home")
     st.markdown("---")
+    st.info("📱 On mobile: tap the ≡ icon at top left to view the sidebar.", icon=None)
 
+    _cc_opts = ["— Select complexity —", "Straight Forward", "Moderate", "Complex"]
+    _cc_default = st.session_state.get("case_complexity", "— Select complexity —")
+    _cc_idx = _cc_opts.index(_cc_default) if _cc_default in _cc_opts else 0
     st.session_state["case_complexity"] = st.selectbox(
         "Case Complexity",
-        ["Straight Forward", "Moderate", "Complex"],
-        index=["Straight Forward", "Moderate", "Complex"].index(
-            st.session_state.get("case_complexity", "Straight Forward")
-        ),
+        _cc_opts,
+        index=_cc_idx,
     )
 
     st.markdown("#### Step-Level Ratings")
@@ -828,11 +858,19 @@ elif page == "assessment":
 
     current_o = st.session_state.get("overall_performance", O_SCORE_OPTIONS[0])
     st.session_state["overall_performance"] = st.selectbox(
-        "Overall Performance (O-Score)",
+        "Overall Performance Rating",
         O_SCORE_OPTIONS,
         index=O_SCORE_OPTIONS.index(current_o) if current_o in O_SCORE_OPTIONS else 0,
     )
 
+    with st.expander("💬 Comment guide (tap to expand)", expanded=False):
+        st.markdown(
+            "_Use these prompts to structure your feedback:_\n\n"
+            "- The resident demonstrated ___\n"
+            "- Improvements made on ___\n"
+            "- Still working on ___\n"
+            "- Next steps/improvements expected ___"
+        )
     st.session_state["notes"] = st.text_area("Comments / Feedback", st.session_state.get("notes", ""))
 
     if all(v == "Not Assessed" for v in st.session_state["scores"].values()):
@@ -842,7 +880,9 @@ elif page == "assessment":
     st.markdown("---")
     st.caption("✅ The case is saved automatically when you click Finish & Save.")
     if st.button("🏁 Finish & Save →", type="primary", use_container_width=True):
-        if st.session_state["overall_performance"] == O_SCORE_OPTIONS[0]:
+        if st.session_state.get("case_complexity", "— Select complexity —") == "— Select complexity —":
+            st.warning("Please select a Case Complexity.")
+        elif st.session_state["overall_performance"] == O_SCORE_OPTIONS[0]:
             st.warning("Please select an Overall Performance rating.")
         else:
             try:
@@ -912,6 +952,8 @@ elif page == "dashboard":
 # ════════════════════════════════════════════════════════════
 elif page == "comments":
     st.title("💬 Comments Dashboard")
+    if st.button("🏠 Back to Home", key="comments_home_top"):
+        go_to("home")
     resident = st.session_state.get("resident")
     if not resident:
         st.error("Not logged in.")
@@ -962,10 +1004,10 @@ elif page == "comments":
             "attending_name": "Attending",
             "notes":          "Comments",
         })
-        # Fix 1: format dates as MM-DD-YYYY
+        # Fix 1: format dates as MM-DD-YYYY — sort by datetime first, then format
+        merged["_date_sort"] = pd.to_datetime(merged["Date"], errors="coerce")
+        merged = merged[["Date", "Procedure", "Attending", "Comments", "_date_sort"]].sort_values("_date_sort", ascending=False).drop(columns=["_date_sort"])
         merged["Date"] = merged["Date"].apply(fmt_date)
-        # Fix 8: remove Case Complexity and Overall Performance columns
-        merged = merged[["Date", "Procedure", "Attending", "Comments"]].sort_values("Date", ascending=False)
 
         # Fix 8: procedure filter dropdown
         _proc_opts = ["All Procedures"] + sorted(merged["Procedure"].dropna().unique().tolist())
@@ -980,6 +1022,7 @@ elif page == "comments":
 .comments-tbl th {background:var(--secondary-background-color);padding:8px 10px;
     text-align:left;border-bottom:2px solid #ccc;font-weight:600;}
 .comments-tbl td {padding:8px 10px;vertical-align:top;border-bottom:1px solid var(--secondary-background-color);}
+.comments-tbl td.date-col {white-space:nowrap;}
 .comments-tbl td.comments-col {white-space:pre-wrap;word-break:break-word;min-width:260px;}
 </style>""", unsafe_allow_html=True)
 
@@ -987,7 +1030,7 @@ elif page == "comments":
         for _, r in merged.reset_index(drop=True).iterrows():
             _rows_html += (
                 f"<tr>"
-                f"<td>{r['Date']}</td>"
+                f"<td class='date-col'>{r['Date']}</td>"
                 f"<td>{r['Procedure']}</td>"
                 f"<td>{r['Attending']}</td>"
                 f"<td class='comments-col'>{str(r['Comments']).replace(chr(10), '<br>')}</td>"
@@ -1019,6 +1062,9 @@ elif page == "comments":
 # ════════════════════════════════════════════════════════════
 elif page == "cumulative":
     st.title("📊 Cumulative Dashboard")
+    if st.button("🏠 Back to Home", key="cumulative_home_top"):
+        go_to("home")
+    st.info("📱 On mobile: tap the ≡ icon at top left to view the sidebar.")
     resident = st.session_state.get("resident")
     if not resident:
         st.error("Not logged in.")
@@ -1092,7 +1138,7 @@ elif page == "cumulative":
     proc_ids      = merged["case_procedure_id"].dropna().unique()
     selected_proc = st.selectbox(
         "Procedure",
-        options=list(proc_ids),
+        options=sorted(proc_ids, key=lambda x: procs_map.get(x, x)),
         format_func=lambda x: procs_map.get(x, x),
     )
 
@@ -1127,10 +1173,11 @@ elif page == "cumulative":
     # Sort cases by date (desc) for Most Recent computation and display
     pivot_sorted = pivot.sort_values("date", ascending=False)
 
-    # Fix 14: Compute "Most Recent" summary row — per step, first non-null value
+    # Fix 14: Compute "Most Recent" summary row — per step, first non-null, non-"Not Assessed" value
     _mr = {"date": "📌 Most Recent", "attending_name": "", "case_complexity": pd.NA, "overall_performance": pd.NA}
     for _s in ordered_steps:
         _vals = pivot_sorted[_s].dropna()
+        _vals = _vals[_vals != "Not Assessed"]
         _mr[_s] = _vals.iloc[0] if not _vals.empty else pd.NA
 
     # Fix 14: Compute "Best" summary row — per step, highest rating_num ever
@@ -1236,21 +1283,34 @@ elif page == "cumulative":
         )
 
     table_styles = [
-        {"selector": "table",       "props": [("border-collapse", "collapse"), ("margin", "0 auto")]},
-        {"selector": "th, td",      "props": [("border", "1px solid var(--secondary-background-color)"),
+        {"selector": "table",       "props": [("border-collapse", "collapse"), ("margin", "0 auto"),
+                                               ("border", "2px solid #555")]},
+        {"selector": "th, td",      "props": [("border", "1px solid #bbb"),
                                                ("padding", "4px"), ("font-size", "0.8rem")]},
-        # Fix 10: bottom-justify all column headers
+        # Bottom-justify all column headers
         {"selector": "th.col_heading", "props": [("text-align", "center"), ("vertical-align", "bottom"),
                                                    ("font-weight", "600")]},
+        # Strong border below header row
+        {"selector": "thead tr:last-child th", "props": [("border-bottom", "2px solid #555")]},
+        # Strong horizontal borders between data rows
+        {"selector": "tbody tr", "props": [("border-bottom", "1px solid #bbb")]},
+        # Summary rows (first two) — strong bottom border and right-justify label
+        {"selector": "tbody tr:nth-child(1)", "props": [("border-bottom", "2px solid #555")]},
+        {"selector": "tbody tr:nth-child(2)", "props": [("border-bottom", "2px solid #555")]},
+        {"selector": "tbody tr:nth-child(1) td:first-child",
+         "props": [("text-align", "right"), ("font-weight", "600"), ("padding-right", "6px")]},
+        {"selector": "tbody tr:nth-child(2) td:first-child",
+         "props": [("text-align", "right"), ("font-weight", "600"), ("padding-right", "6px")]},
     ]
-    # Fix 10 & 12: vertical text, bottom-justified for step columns AND Complexity/O-score
+    # Fix 10 & 12: vertical text bottom-to-top, single-line with ellipsis, no wrapping
     for idx, col_name in enumerate(all_cols):
         if col_name in ordered_steps or col_name in ("Case Complexity", "Overall Performance"):
             table_styles.append({
                 "selector": f"th.col_heading.level0.col{idx}",
                 "props": [("writing-mode", "vertical-rl"), ("text-orientation", "mixed"),
-                           ("white-space", "normal"), ("overflow-wrap", "break-word"),
-                           ("max-height", "120px"), ("font-size", "0.75rem"),
+                           ("transform", "rotate(180deg)"),
+                           ("white-space", "nowrap"), ("overflow", "hidden"),
+                           ("max-height", "160px"), ("font-size", "0.75rem"),
                            ("padding", "4px 2px"), ("vertical-align", "bottom"),
                            ("min-width", "40px"), ("max-width", "40px")],
             })
@@ -1279,15 +1339,6 @@ elif page == "cumulative":
     st.markdown(
         '<div class="legend-row">' +
         "".join(_swatch(v, k) for k, v in COMPLEXITY_HEX.items()) +
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("#### O-Score")
-    o_labels = {"1": "1–Not Yet", "2": "2–Steer", "3": "3–Prompt", "4": "4–Backup", "5": "5–Auto"}
-    st.markdown(
-        '<div class="legend-row">' +
-        "".join(_swatch(v, o_labels[k]) for k, v in O_SCORE_HEX.items()) +
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1381,7 +1432,8 @@ elif page == "attending_assessment":
         st.stop()
 
     case_date       = st.date_input("Date of Procedure", value=datetime.date.today())
-    case_complexity = st.selectbox("Case Complexity", ["Straight Forward", "Moderate", "Complex"])
+    _att_cc_opts = ["— Select complexity —", "Straight Forward", "Moderate", "Complex"]
+    case_complexity = st.selectbox("Case Complexity", _att_cc_opts)
 
     st.markdown("#### Step-Level Ratings")
     scores: dict = {}
@@ -1392,12 +1444,22 @@ elif page == "attending_assessment":
             step_name, RATING_OPTIONS, key=f"att_score_{step_id}"
         )
 
-    o_score = st.selectbox("Overall Performance (O-Score)", O_SCORE_OPTIONS)
+    o_score = st.selectbox("Overall Performance Rating", O_SCORE_OPTIONS)
+    with st.expander("💬 Comment guide (tap to expand)", expanded=False):
+        st.markdown(
+            "_Use these prompts to structure your feedback:_\n\n"
+            "- The resident demonstrated ___\n"
+            "- Improvements made on ___\n"
+            "- Still working on ___\n"
+            "- Next steps/improvements expected ___"
+        )
     notes   = st.text_area("Comments / Feedback (optional)")
 
     st.markdown("---")
     if st.button("✅ Submit Evaluation", type="primary", use_container_width=True):
-        if o_score == O_SCORE_OPTIONS[0]:
+        if case_complexity == "— Select complexity —":
+            st.warning("Please select a Case Complexity before submitting.")
+        elif o_score == O_SCORE_OPTIONS[0]:
             st.warning("Please select an Overall Performance rating before submitting.")
         else:
             try:
