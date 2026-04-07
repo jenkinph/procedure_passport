@@ -1378,11 +1378,10 @@ elif page == "cumulative":
              "props": [("text-align", "right"), ("font-weight", "600"),
                        ("padding-right", "6px"), ("border-left", "none")]},
         ]
-        # Vertical step headers: anchored to visual bottom, beginning of name visible.
-        # display: flex + flex-direction: column + justify-content: flex-end pushes content
-        # to the physical bottom; writing-mode + rotate(180deg) then makes visual bottom =
-        # physical bottom → first character of name is at the visual bottom.
-        # overflow: hidden clips excess at the visual top (end of long names).
+        # Vertical step headers: writing-mode + rotate(180deg) makes text read bottom-to-top.
+        # vertical-align: bottom anchors text to the visual bottom of the header cell.
+        # text-align: left means the start of each step name is visible; overflow: hidden
+        # clips the end. No flex — flex collapses columns into one.
         for idx, col_name in enumerate(all_cols):
             if col_name in ordered_steps_display or col_name in ("Case Complexity", "Overall Performance"):
                 table_styles.append({
@@ -1390,19 +1389,18 @@ elif page == "cumulative":
                     "props": [
                         ("writing-mode", "vertical-rl"),
                         ("transform", "rotate(180deg)"),
-                        ("display", "flex"),
-                        ("flex-direction", "column"),
-                        ("justify-content", "flex-end"),
-                        ("text-align", "center"),
+                        ("vertical-align", "bottom"),
+                        ("text-align", "left"),
+                        ("white-space", "nowrap"),
                         ("overflow", "hidden"),
                         ("text-overflow", "ellipsis"),
-                        ("white-space", "nowrap"),
                         ("max-height", "180px"),
                         ("height", "180px"),
                         ("font-size", "0.75rem"),
                         ("padding", "4px 2px"),
-                        ("min-width", "40px"),
-                        ("max-width", "40px"),
+                        ("width", "36px"),
+                        ("min-width", "36px"),
+                        ("max-width", "36px"),
                     ],
                 })
 
