@@ -71,7 +71,7 @@ RATING_TO_NUM  = {
 RATING_HEX = {
     "Not Assessed": "#F0F0F0",  # white/empty — explicitly rated as not assessed
     "Shown/Told":   "#9E9E9E",  # dark gray — explicitly shown or told
-    "Not Yet":      "#378ADD",
+    "Not Yet":      "#5B8DB8",
     "Steer":        "#FF944D",
     "Prompt":       "#FFD633",
     "Back up":      "#99E699",
@@ -155,9 +155,9 @@ def get_sheet(sheet_name: str):
         raise ConnectionError(f"Cannot reach Google Sheets: {exc}") from exc
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def read_sheet_df(sheet_name: str, expected_cols=None) -> pd.DataFrame:
-    """Cached worksheet read (60 s TTL).  Returns empty DF if sheet is blank."""
+    """Cached worksheet read (300 s TTL).  Returns empty DF if sheet is blank."""
     ws  = get_sheet(sheet_name)
     df  = get_as_dataframe(ws, evaluate_formulas=True, header=0)
     df  = df.dropna(how="all")
@@ -179,9 +179,9 @@ def write_sheet_df(sheet_name: str, df: pd.DataFrame) -> None:
     st.cache_data.clear()  # invalidate all read caches after every write
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_refs():
-    """Load all reference tables in one shot (cached 60 s)."""
+    """Load all reference tables in one shot (cached 300 s)."""
     def _safe(name, cols):
         try:
             return read_sheet_df(name, expected_cols=cols)
@@ -1009,6 +1009,8 @@ elif page == "comments":
         merged = merged[["Date", "Procedure", "Attending", "Comments", "_date_sort"]].sort_values("_date_sort", ascending=False).drop(columns=["_date_sort"])
         merged["Date"] = merged["Date"].apply(fmt_date)
 
+        st.caption("💡 Tip: To screenshot the full table, use File > Print (or Cmd+P / Ctrl+P) and screenshot the print preview.")
+
         # Fix 8: procedure filter dropdown
         _proc_opts = ["All Procedures"] + sorted(merged["Procedure"].dropna().unique().tolist())
         _proc_filter = st.selectbox("Filter by Procedure", _proc_opts, key="comments_proc_filter")
@@ -1150,13 +1152,12 @@ elif page == "cumulative":
     )
 
     # Build display names for step column headers.
-    # With writing-mode: vertical-rl + rotate(180deg), text's physical top maps to the
-    # visual BOTTOM, so overflow clips the physical bottom = visual TOP (end of name).
-    # Pre-truncating to the LAST N chars ensures the distinctive end of each step name
-    # is what's visible at the visual bottom rather than the generic beginning.
+    # With writing-mode: vertical-rl + rotate(180deg) + justify-content: flex-end,
+    # text is anchored at the visual bottom. Overflow clips the visual top (end of name).
+    # Truncate from the end so the beginning is always visible at visual bottom.
     def _fmt_step_hdr(name, max_len=18):
         if isinstance(name, str) and len(name) > max_len:
-            return "\u2026" + name[-(max_len - 1):]
+            return name[:max_len - 1] + "\u2026"
         return name if isinstance(name, str) else name
 
     _step_display        = {s: _fmt_step_hdr(s) for s in ordered_steps}
@@ -1176,25 +1177,27 @@ elif page == "cumulative":
 
     pivot = pivot[["date", "attending_name", "case_id", "case_complexity", "overall_performance"] + ordered_steps]
 
-    # ── Screenshot-friendly heatmap (Fixes 9-15) ─────────────────
+    # ── Screenshot-friendly heatmap ──────────────────────────────
     proc_display_name = procs_map.get(selected_proc, selected_proc)
     st.markdown(
         f"### {proc_display_name} — Progress Heatmap\n"
         "Most recent cases at the top. Zoom out to screenshot this grid. 📸"
     )
+    st.caption("💡 Tip: To screenshot the full table, use File > Print (or Cmd+P / Ctrl+P) and screenshot the print preview.")
 
     # Sort cases by date (desc) for Most Recent computation and display
     pivot_sorted = pivot.sort_values("date", ascending=False)
 
-    # Fix 14: Compute "Most Recent" summary row — per step, first non-null, non-"Not Assessed" value
-    _mr = {"date": "📌 Most Recent", "attending_name": "", "case_complexity": pd.NA, "overall_performance": pd.NA}
+    # Compute "Most Recent" summary row — per step, first non-null, non-"Not Assessed" value
+    # Label is placed in attending_name so it appears under Attending column (right side of metadata)
+    _mr = {"date": "", "attending_name": "📌 Most Recent", "case_complexity": pd.NA, "overall_performance": pd.NA}
     for _s in ordered_steps:
         _vals = pivot_sorted[_s].dropna()
         _vals = _vals[_vals != "Not Assessed"]
         _mr[_s] = _vals.iloc[0] if not _vals.empty else pd.NA
 
-    # Fix 14: Compute "Best" summary row — per step, highest rating_num ever
-    _best = {"date": "🏆 Best", "attending_name": "", "case_complexity": pd.NA, "overall_performance": pd.NA}
+    # Compute "Best" summary row — per step, highest rating_num ever
+    _best = {"date": "", "attending_name": "🏆 Best", "case_complexity": pd.NA, "overall_performance": pd.NA}
     for _s in ordered_steps:
         _vals = pivot_sorted[_s].dropna()
         if _vals.empty:
@@ -1232,16 +1235,47 @@ elif page == "cumulative":
     # Step 1: store original values for ALL rating columns before blanking
     _rating_cols = [c for c in ordered_steps_display + ["Case Complexity", "Overall Performance"]
                     if c in display_df.columns]
-    _orig_vals = {col: display_df[col].copy() for col in _rating_cols}
+
+    # Build _orig_vals robustly: if a column name is duplicated (due to truncation producing
+    # identical display names), display_df[col] returns a DataFrame rather than a Series —
+    # normalise to a Series and reindex to display_df.index to prevent the crash.
+    _orig_vals = {}
+    for col in _rating_cols:
+        _v = display_df[col].copy()
+        if isinstance(_v, pd.DataFrame):
+            _v = _v.iloc[:, 0]
+        _orig_vals[col] = _v.reindex(display_df.index)
 
     # Step 2: blank ALL rating columns so no text appears in any cell
     for _c in _rating_cols:
         display_df[_c] = " "
 
+    # Determine "never attempted" step columns: every non-summary data cell is
+    # NaN or "Not Assessed" (step was never meaningfully attempted by this resident).
+    _never_attempted_cols = set()
+    _n_summary = 2  # rows 0 and 1 are Most Recent / Best
+    for _sc in ordered_steps_display:
+        if _sc not in _orig_vals:
+            continue
+        _data_vals = _orig_vals[_sc].iloc[_n_summary:]
+        _meaningful = _data_vals[~(_data_vals.isna() | (_data_vals == "Not Assessed"))]
+        if _meaningful.empty:
+            _never_attempted_cols.add(_sc)
+
     # Color functions — operate on original (pre-blank) values
-    def _color_step(val):
-        if pd.isna(val) or val == "":
-            return "background-color: #E0E0E0"  # Never Attempted
+    def _color_step(val, col=None):
+        """Return background-color CSS for a single step cell."""
+        _is_na = val is None or (isinstance(val, float) and np.isnan(val)) or val == ""
+        try:
+            _is_na = _is_na or pd.isna(val)
+        except (TypeError, ValueError):
+            pass
+        if col in _never_attempted_cols:
+            # Never-attempted column: Not Assessed and blank → gray; Shown/Told keeps its color
+            if _is_na or val == "Not Assessed":
+                return "background-color: #E0E0E0"
+        if _is_na:
+            return "background-color: #E0E0E0"  # blank/NaN = Never Attempted gray
         color = RATING_HEX.get(val, "")
         return f"background-color: {color}" if color else ""
 
@@ -1257,84 +1291,129 @@ elif page == "cumulative":
         return f"background-color: {O_SCORE_HEX.get(key, '')}"
 
     # Build styler — all colors from original values, display values are blank
-    styled = display_df.style
+    try:
+        styled = display_df.style
 
-    if ordered_steps_display:
-        _orig_steps_df = pd.DataFrame(
-            {c: _orig_vals[c] for c in ordered_steps_display}, index=display_df.index
-        )
-        def _color_steps_matrix(df):
-            return pd.DataFrame(
-                {col: [_color_step(v) for v in _orig_steps_df[col]] for col in df.columns},
-                index=df.index,
+        if ordered_steps_display:
+            # Build _orig_steps_df safely, skipping any column missing from _orig_vals
+            _safe_step_cols = [c for c in ordered_steps_display if c in _orig_vals]
+            _orig_steps_df = pd.DataFrame(
+                {c: _orig_vals[c] for c in _safe_step_cols},
+                index=display_df.index,
             )
-        styled = styled.apply(_color_steps_matrix, subset=ordered_steps_display, axis=None)
 
-    def _apply_complexity_colors(col):
-        return [_color_complexity(v) for v in _orig_vals["Case Complexity"]]
+            def _color_steps_matrix(df):
+                result = {}
+                for col in df.columns:
+                    col_colors = []
+                    is_never = col in _never_attempted_cols
+                    for i, v in enumerate(_orig_steps_df[col]):
+                        _na = v is None or v == ""
+                        try:
+                            _na = _na or pd.isna(v)
+                        except (TypeError, ValueError):
+                            pass
+                        if is_never and i < _n_summary:
+                            # Summary rows in never-attempted columns → gray
+                            col_colors.append("background-color: #E0E0E0")
+                        else:
+                            col_colors.append(_color_step(v, col=col))
+                    result[col] = col_colors
+                return pd.DataFrame(result, index=df.index)
 
-    def _apply_o_score_colors(col):
-        return [_color_o_score(v) for v in _orig_vals["Overall Performance"]]
+            if _safe_step_cols:
+                styled = styled.apply(_color_steps_matrix, subset=_safe_step_cols, axis=None)
 
-    styled = (
-        styled
-        .apply(_apply_complexity_colors, subset=["Case Complexity"], axis=0)
-        .apply(_apply_o_score_colors,    subset=["Overall Performance"], axis=0)
-        .hide(axis="index")
-        .set_properties(
-            subset=["Date", "Attending"],
-            **{"min-width": "120px", "white-space": "nowrap"},
+        def _apply_complexity_colors(col):
+            return [_color_complexity(v) for v in _orig_vals["Case Complexity"]]
+
+        def _apply_o_score_colors(col):
+            return [_color_o_score(v) for v in _orig_vals["Overall Performance"]]
+
+        styled = (
+            styled
+            .apply(_apply_complexity_colors, subset=["Case Complexity"], axis=0)
+            .apply(_apply_o_score_colors,    subset=["Overall Performance"], axis=0)
+            .hide(axis="index")
+            .set_properties(
+                subset=["Date", "Attending"],
+                **{"min-width": "120px", "white-space": "nowrap"},
+            )
+            .set_properties(
+                subset=["Case Complexity", "Overall Performance"],
+                **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
+            )
         )
-        .set_properties(
-            subset=["Case Complexity", "Overall Performance"],
-            **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
-        )
-    )
-    if ordered_steps_display:
-        styled = styled.set_properties(
-            subset=ordered_steps_display,
-            **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
-        )
+        if ordered_steps_display:
+            styled = styled.set_properties(
+                subset=ordered_steps_display,
+                **{"min-width": "40px", "max-width": "40px", "width": "40px", "text-align": "center"},
+            )
 
-    table_styles = [
-        {"selector": "table",       "props": [("border-collapse", "collapse"), ("margin", "0 auto"),
-                                               ("border", "2px solid #555")]},
-        {"selector": "th, td",      "props": [("border", "1px solid #bbb"),
-                                               ("padding", "4px"), ("font-size", "0.8rem")]},
-        # Bottom-justify all column headers
-        {"selector": "th.col_heading", "props": [("text-align", "center"), ("vertical-align", "bottom"),
-                                                   ("font-weight", "600")]},
-        # Strong border below header row
-        {"selector": "thead tr:last-child th", "props": [("border-bottom", "2px solid #555")]},
-        # Strong horizontal borders between data rows
-        {"selector": "tbody tr", "props": [("border-bottom", "1px solid #bbb")]},
-        # Summary rows (first two) — strong bottom border and right-justify label
-        {"selector": "tbody tr:nth-child(1)", "props": [("border-bottom", "2px solid #555")]},
-        {"selector": "tbody tr:nth-child(2)", "props": [("border-bottom", "2px solid #555")]},
-        {"selector": "tbody tr:nth-child(1) td:first-child",
-         "props": [("text-align", "right"), ("font-weight", "600"), ("padding-right", "6px")]},
-        {"selector": "tbody tr:nth-child(2) td:first-child",
-         "props": [("text-align", "right"), ("font-weight", "600"), ("padding-right", "6px")]},
-    ]
-    # Vertical text: bottom-to-top, single-line, anchored at visual bottom
-    # rotate(180deg) maps physical-top → visual-bottom; vertical-align:bottom keeps
-    # text at the physical bottom which after rotation = visual top anchor for the header row.
-    # Python pre-truncation (last 17 chars) ensures the END of each step name is in the
-    # visible portion (visual bottom) rather than the beginning.
-    for idx, col_name in enumerate(all_cols):
-        if col_name in ordered_steps_display or col_name in ("Case Complexity", "Overall Performance"):
-            table_styles.append({
-                "selector": f"th.col_heading.level0.col{idx}",
-                "props": [("writing-mode", "vertical-rl"), ("text-orientation", "mixed"),
-                           ("transform", "rotate(180deg)"),
-                           ("white-space", "nowrap"), ("overflow", "hidden"),
-                           ("height", "180px"), ("font-size", "0.75rem"),
-                           ("padding", "4px 2px"), ("vertical-align", "bottom"),
-                           ("min-width", "40px"), ("max-width", "40px")],
-            })
+        table_styles = [
+            {"selector": "table",       "props": [("border-collapse", "collapse"), ("margin", "0 auto"),
+                                                   ("border", "2px solid #555")]},
+            {"selector": "th, td",      "props": [("border", "1px solid #bbb"),
+                                                   ("padding", "4px"), ("font-size", "0.8rem")]},
+            # Bottom-justify all column headers
+            {"selector": "th.col_heading", "props": [("text-align", "center"), ("vertical-align", "bottom"),
+                                                       ("font-weight", "600")]},
+            # Strong border below header row
+            {"selector": "thead tr:last-child th", "props": [("border-bottom", "2px solid #555")]},
+            # Strong horizontal borders between data rows
+            {"selector": "tbody tr", "props": [("border-bottom", "1px solid #bbb")]},
+            # Summary rows (first two) — strong bottom border
+            {"selector": "tbody tr:nth-child(1)", "props": [("border-bottom", "2px solid #555")]},
+            {"selector": "tbody tr:nth-child(2)", "props": [("border-bottom", "2px solid #555")]},
+            # Summary row labels: right-justify in the Attending (2nd) column;
+            # visually merge Date+Attending by removing their shared border.
+            {"selector": "tbody tr:nth-child(1) td:nth-child(1)",
+             "props": [("border-right", "none")]},
+            {"selector": "tbody tr:nth-child(2) td:nth-child(1)",
+             "props": [("border-right", "none")]},
+            {"selector": "tbody tr:nth-child(1) td:nth-child(2)",
+             "props": [("text-align", "right"), ("font-weight", "600"),
+                       ("padding-right", "6px"), ("border-left", "none")]},
+            {"selector": "tbody tr:nth-child(2) td:nth-child(2)",
+             "props": [("text-align", "right"), ("font-weight", "600"),
+                       ("padding-right", "6px"), ("border-left", "none")]},
+        ]
+        # Vertical step headers: anchored to visual bottom, beginning of name visible.
+        # display: flex + flex-direction: column + justify-content: flex-end pushes content
+        # to the physical bottom; writing-mode + rotate(180deg) then makes visual bottom =
+        # physical bottom → first character of name is at the visual bottom.
+        # overflow: hidden clips excess at the visual top (end of long names).
+        for idx, col_name in enumerate(all_cols):
+            if col_name in ordered_steps_display or col_name in ("Case Complexity", "Overall Performance"):
+                table_styles.append({
+                    "selector": f"th.col_heading.level0.col{idx}",
+                    "props": [
+                        ("writing-mode", "vertical-rl"),
+                        ("transform", "rotate(180deg)"),
+                        ("display", "flex"),
+                        ("flex-direction", "column"),
+                        ("justify-content", "flex-end"),
+                        ("text-align", "center"),
+                        ("overflow", "hidden"),
+                        ("text-overflow", "ellipsis"),
+                        ("white-space", "nowrap"),
+                        ("max-height", "180px"),
+                        ("height", "180px"),
+                        ("font-size", "0.75rem"),
+                        ("padding", "4px 2px"),
+                        ("min-width", "40px"),
+                        ("max-width", "40px"),
+                    ],
+                })
 
-    styled = styled.set_table_styles(table_styles)
-    st.markdown(styled.to_html(), unsafe_allow_html=True)
+        styled = styled.set_table_styles(table_styles)
+        st.markdown(styled.to_html(), unsafe_allow_html=True)
+
+    except Exception as _heatmap_err:
+        st.warning(
+            f"⚠️ Could not render the heatmap for this procedure: {_heatmap_err}\n\n"
+            "Please try a different procedure, or contact your program coordinator."
+        )
 
     # ── Legends ───────────────────────────────────────────
     def _swatch(color, label, border=""):
