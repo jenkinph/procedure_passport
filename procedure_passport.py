@@ -6,6 +6,7 @@ import datetime
 import io
 import base64
 import json
+import html
 import gspread
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from google.oauth2.service_account import Credentials
@@ -1009,7 +1010,7 @@ elif page == "comments":
         merged = merged[["Date", "Procedure", "Attending", "Comments", "_date_sort"]].sort_values("_date_sort", ascending=False).drop(columns=["_date_sort"])
         merged["Date"] = merged["Date"].apply(fmt_date)
 
-        st.caption("💡 Tip: To screenshot the full table, use File > Print (or Cmd+P / Ctrl+P) and screenshot the print preview.")
+        st.caption("💡 Tip: To screenshot the full table — on mobile use print preview; on desktop use File > Print (Cmd+P / Ctrl+P), then adjust the scale percentage down until all columns fit on one page before screenshotting.")
 
         # Fix 8: procedure filter dropdown
         _proc_opts = ["All Procedures"] + sorted(merged["Procedure"].dropna().unique().tolist())
@@ -1032,10 +1033,10 @@ elif page == "comments":
         for _, r in merged.reset_index(drop=True).iterrows():
             _rows_html += (
                 f"<tr>"
-                f"<td class='date-col'>{r['Date']}</td>"
-                f"<td>{r['Procedure']}</td>"
-                f"<td>{r['Attending']}</td>"
-                f"<td class='comments-col'>{str(r['Comments']).replace(chr(10), '<br>')}</td>"
+                f"<td class='date-col'>{html.escape(str(r['Date']))}</td>"
+                f"<td>{html.escape(str(r['Procedure']))}</td>"
+                f"<td>{html.escape(str(r['Attending']))}</td>"
+                f"<td class='comments-col'>{html.escape(str(r['Comments'])).replace(chr(10), '<br>')}</td>"
                 f"</tr>"
             )
         st.markdown(
@@ -1183,7 +1184,7 @@ elif page == "cumulative":
         f"### {proc_display_name} — Progress Heatmap\n"
         "Most recent cases at the top. Zoom out to screenshot this grid. 📸"
     )
-    st.caption("💡 Tip: To screenshot the full table, use File > Print (or Cmd+P / Ctrl+P) and screenshot the print preview.")
+    st.caption("💡 Tip: To screenshot the full table — on mobile use print preview; on desktop use File > Print (Cmd+P / Ctrl+P), then adjust the scale percentage down until all columns fit on one page before screenshotting.")
 
     # Sort cases by date (desc) for Most Recent computation and display
     pivot_sorted = pivot.sort_values("date", ascending=False)
@@ -1574,6 +1575,7 @@ elif page == "attending_assessment":
                     "case_id":             case_id,
                     "resident_email":      resident_email,
                     "procedure_id":        procedure_id,
+                    "procedure_name":      _att_proc_name,
                     "attending_name":      display_attending,
                     "date":                str(case_date),
                     "case_complexity":     case_complexity,
@@ -1603,7 +1605,7 @@ elif page == "attending_confirmation":
         f'<div class="pp-card">'
         f'<b>Resident:</b> {sub["resident_email"]}<br>'
         f'<b>Attending:</b> {sub["attending_name"]}<br>'
-        f'<b>Procedure:</b> {sub["procedure_id"]}<br>'
+        f'<b>Procedure:</b> {sub.get("procedure_name", sub["procedure_id"])}<br>'
         f'<b>Date:</b> {fmt_date(sub["date"])}<br>'
         f'<b>Case Complexity:</b> {sub["case_complexity"]}<br>'
         f'<b>Overall Performance:</b> {sub["overall_performance"]}<br>'
