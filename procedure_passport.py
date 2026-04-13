@@ -462,7 +462,7 @@ if page == "login":
         st.markdown("---")
         email = st.text_input("Email address", placeholder="you@hospital.org")
 
-        if st.button("Login →", use_container_width=True, type="primary"):
+        if st.button("Login →", width="stretch", type="primary"):
             if not email.strip():
                 st.error("Please enter your email address.")
             else:
@@ -507,7 +507,7 @@ elif page == "admin":
     st.subheader("Specialties")
     try:
         specialties = read_sheet_df(SHEET_SPECIALTY, expected_cols=["specialty_id", "specialty_name"])
-        st.dataframe(specialties, use_container_width=True)
+        st.dataframe(specialties, width="stretch")
 
         with st.expander("➕ Add Specialty"):
             new_spec_id   = st.text_input("Specialty ID (e.g., GS)")
@@ -543,7 +543,7 @@ elif page == "admin":
             SHEET_RESIDENTS, expected_cols=["email", "name", "specialty_id", "created_at"]
         )
         disp = residents.merge(spec_df, how="left", on="specialty_id")
-        st.dataframe(disp[["email", "name", "specialty_name", "created_at"]], use_container_width=True)
+        st.dataframe(disp[["email", "name", "specialty_name", "created_at"]], width="stretch")
 
         with st.expander("➕ Add Resident"):
             new_res_email = st.text_input("Email")
@@ -579,7 +579,7 @@ elif page == "admin":
             SHEET_ATTENDINGS, expected_cols=["attending_id", "attending_name", "specialty_id", "email"]
         )
         spec_df, _, _, _ = load_refs()
-        st.dataframe(attendings, use_container_width=True)
+        st.dataframe(attendings, width="stretch")
 
         with st.expander("➕ Add Attending"):
             new_att_name  = st.text_input("Attending name")
@@ -687,7 +687,7 @@ elif page == "home":
         st.markdown('<div class="pp-card">', unsafe_allow_html=True)
         st.markdown("### ➕ New Assessment")
         st.markdown("Start a new procedure case and record step ratings.")
-        if st.button("Start Assessment", use_container_width=True, type="primary"):
+        if st.button("Start Assessment", width="stretch", type="primary"):
             go_to("start")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -695,7 +695,7 @@ elif page == "home":
         st.markdown('<div class="pp-card">', unsafe_allow_html=True)
         st.markdown("### 📊 Cumulative Dashboard")
         st.markdown("View your progress heatmap over time.")
-        if st.button("View Dashboard", use_container_width=True):
+        if st.button("View Dashboard", width="stretch"):
             go_to("cumulative")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -703,7 +703,7 @@ elif page == "home":
         st.markdown('<div class="pp-card">', unsafe_allow_html=True)
         st.markdown("### 💬 Comments")
         st.markdown("Browse and export all attending feedback.")
-        if st.button("View Comments", use_container_width=True):
+        if st.button("View Comments", width="stretch"):
             go_to("comments")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -791,7 +791,7 @@ elif page == "start":
         if st.button("⬅️ Back to Home"):
             go_to("home")
     with col3:
-        if st.button("Start Assessment →", type="primary", use_container_width=True):
+        if st.button("Start Assessment →", type="primary", width="stretch"):
             st.session_state["scores"] = {}
             st.session_state["notes"]  = ""
             go_to("assessment")
@@ -886,7 +886,7 @@ elif page == "assessment":
     # Fix 7: Finish button alone at the bottom with a confirmation note
     st.markdown("---")
     st.caption("✅ The case is saved automatically when you click Finish & Save.")
-    if st.button("🏁 Finish & Save →", type="primary", use_container_width=True):
+    if st.button("🏁 Finish & Save →", type="primary", width="stretch"):
         if st.session_state.get("case_complexity", "— Select complexity —") == "— Select complexity —":
             st.warning("Please select a Case Complexity.")
         elif st.session_state["overall_performance"] == O_SCORE_OPTIONS[0]:
@@ -928,7 +928,7 @@ elif page == "dashboard":
              "Rating": st.session_state["scores"].get(row["step_id"], "")}
             for _, row in steps.iterrows()]
     df   = pd.DataFrame(data)
-    st.dataframe(style_df(df, "Rating"), use_container_width=True)
+    st.dataframe(style_df(df, "Rating"), width="stretch")
 
     meta_col1, meta_col2 = st.columns(2)
     with meta_col1:
@@ -1575,7 +1575,7 @@ elif page == "attending_assessment":
     notes   = st.text_area("Comments / Feedback (optional)")
 
     st.markdown("---")
-    if st.button("✅ Submit Evaluation", type="primary", use_container_width=True):
+    if st.button("✅ Submit Evaluation", type="primary", width="stretch"):
         if case_complexity == "— Select complexity —":
             st.warning("Please select a Case Complexity before submitting.")
         elif o_score == O_SCORE_OPTIONS[0]:
@@ -1650,7 +1650,7 @@ elif page == "attending_confirmation":
         step_rows.append({"Step": step_name, "Rating": rating})
 
     summary_df = pd.DataFrame(step_rows)
-    st.dataframe(style_df(summary_df, "Rating"), use_container_width=True)
+    st.dataframe(style_df(summary_df, "Rating"), width="stretch")
 
     st.markdown("---")
     st.markdown("_You may now close this window. The resident can view the evaluation in their dashboard._")
