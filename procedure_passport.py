@@ -285,6 +285,10 @@ def save_case(
     score_cols = ["case_id", "step_id", "rating", "rating_num",
                   "case_complexity", "overall_performance"]
     scores_df  = read_sheet_df(SHEET_SCORES, expected_cols=score_cols)
+    # Normalise case_id to string before concat so all rows have a consistent
+    # dtype — prevents a dtype mismatch in the cumulative dashboard's join.
+    if not scores_df.empty:
+        scores_df["case_id"] = scores_df["case_id"].astype(str).str.strip()
     new_rows   = [{
         "case_id":             case_id,
         "step_id":             step_id,
@@ -1094,6 +1098,14 @@ elif page == "cumulative":
     for col in ["case_complexity", "overall_performance"]:
         if col not in scores_df.columns:
             scores_df[col] = pd.NA
+
+    # Normalise case_id to string in both sheets so the join key type always
+    # matches regardless of how gspread or pandas inferred the column dtype
+    # (hex strings can be parsed as floats by some pandas/gspread versions,
+    # causing the inner join to return empty even when data exists).
+    for _df in (cases_df, scores_df):
+        _df.dropna(subset=["case_id"], inplace=True)
+        _df["case_id"] = _df["case_id"].astype(str).str.strip()
 
     # Deduplicate all lookup tables before any join so duplicate sheet rows
     # can't produce phantom extra rows in the dashboard.
