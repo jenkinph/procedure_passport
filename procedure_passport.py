@@ -285,10 +285,12 @@ def save_case(
     score_cols = ["case_id", "step_id", "rating", "rating_num",
                   "case_complexity", "overall_performance"]
     scores_df  = read_sheet_df(SHEET_SCORES, expected_cols=score_cols)
-    # Normalise case_id to string before concat so all rows have a consistent
-    # dtype — prevents a dtype mismatch in the cumulative dashboard's join.
+    # Normalise existing case_ids to clean strings before concat so the written
+    # sheet is consistent — same logic used in the cumulative dashboard join.
     if not scores_df.empty:
-        scores_df["case_id"] = scores_df["case_id"].astype(str).str.strip()
+        scores_df["case_id"] = (scores_df["case_id"].astype(str)
+                                                     .str.strip()
+                                                     .str.replace(r"\.0$", "", regex=True))
     new_rows   = [{
         "case_id":             case_id,
         "step_id":             step_id,
@@ -1099,13 +1101,22 @@ elif page == "cumulative":
         if col not in scores_df.columns:
             scores_df[col] = pd.NA
 
-    # Normalise case_id to string in both sheets so the join key type always
-    # matches regardless of how gspread or pandas inferred the column dtype
-    # (hex strings can be parsed as floats by some pandas/gspread versions,
-    # causing the inner join to return empty even when data exists).
+    # Normalise case_id to a clean string on both DataFrames before any join.
+    # pandas 3.x (and some gspread versions) can infer all-digit hex case_ids
+    # as float64, making astype(str) produce "123456789012.0" while the other
+    # sheet keeps "123456789012".  The three-step chain below is safe for every
+    # dtype combination:
+    #   float64  123456789012.0  → "123456789012.0" → strip → remove .0 → "123456789012"
+    #   int64    123456789012    → "123456789012"   → strip → no-op      → "123456789012"
+    #   object   "abc123def456"  → "abc123def456"   → strip → no-op      → "abc123def456"
+    def _norm_case_id(series: pd.Series) -> pd.Series:
+        return (series.astype(str)
+                      .str.strip()
+                      .str.replace(r"\.0$", "", regex=True))
+
     for _df in (cases_df, scores_df):
         _df.dropna(subset=["case_id"], inplace=True)
-        _df["case_id"] = _df["case_id"].astype(str).str.strip()
+        _df["case_id"] = _norm_case_id(_df["case_id"])
 
     # Deduplicate all lookup tables before any join so duplicate sheet rows
     # can't produce phantom extra rows in the dashboard.
