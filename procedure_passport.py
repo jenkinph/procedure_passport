@@ -1099,6 +1099,39 @@ elif page == "cumulative":
         if col not in scores_df.columns:
             scores_df[col] = pd.NA
 
+    # ── DEBUG (temporary) ────────────────────────────────────────────────────
+    with st.expander("🐛 DEBUG — expand to inspect raw sheet data", expanded=True):
+        st.write("**Logged-in resident (session state):**", repr(resident))
+
+        st.write(f"**cases_df shape:** {cases_df.shape}  |  case_id dtype: `{cases_df['case_id'].dtype}`")
+        st.write("**cases_df (first 5 rows):**")
+        st.dataframe(cases_df.head())
+
+        st.write(f"**scores_df shape:** {scores_df.shape}  |  case_id dtype: `{scores_df['case_id'].dtype}`")
+        st.write("**scores_df (first 5 rows):**")
+        st.dataframe(scores_df.head())
+
+        _rc_pre = cases_df[cases_df["resident_email"] == resident]
+        st.write(f"**res_cases (filtered by resident_email):** {len(_rc_pre)} row(s)")
+        st.dataframe(_rc_pre.head())
+
+        st.write("**Sample case_id values — cases sheet:**",
+                 cases_df["case_id"].head(3).tolist())
+        st.write("**Sample case_id values — scores sheet:**",
+                 scores_df["case_id"].head(3).tolist())
+
+        # Check for overlap
+        _cases_ids  = set(cases_df["case_id"].astype(str).str.strip())
+        _scores_ids = set(scores_df["case_id"].astype(str).str.strip())
+        st.write(f"**Unique case_ids in cases sheet:** {len(_cases_ids)}")
+        st.write(f"**Unique case_ids in scores sheet:** {len(_scores_ids)}")
+        st.write(f"**Overlap (ids in BOTH sheets):** {len(_cases_ids & _scores_ids)}")
+        if _cases_ids and _scores_ids and not (_cases_ids & _scores_ids):
+            st.error("⚠️ NO overlap between case_ids in cases and scores sheets!")
+            st.write("Cases sheet sample ids:", sorted(_cases_ids)[:5])
+            st.write("Scores sheet sample ids:", sorted(_scores_ids)[:5])
+    # ── END DEBUG ─────────────────────────────────────────────────────────────
+
     # Normalise case_id to string in both sheets so the join key type always
     # matches regardless of how gspread or pandas inferred the column dtype
     # (hex strings can be parsed as floats by some pandas/gspread versions,
