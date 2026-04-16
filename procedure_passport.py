@@ -1191,6 +1191,16 @@ elif page == "cumulative":
             "step_order":          step_meta.get("step_order", 0),
         })
 
+    # ── TEMPORARY DEBUG — remove before release ───────────────────────────────
+    st.write("Total cases in sheet:", len(cases_df))
+    st.write("Resident email:", resident)
+    st.write("Sample case emails:", cases_df["resident_email"].head(5).tolist())
+    st.write("Sample case_ids from cases:", cases_df["case_id"].head(5).tolist())
+    st.write("Sample case_ids from scores:", scores_df["case_id"].head(5).tolist())
+    st.write("Resident cases found:", len(resident_cases))
+    st.write("Merged rows found:", len(merged_rows))
+    # ── END TEMPORARY DEBUG ───────────────────────────────────────────────────
+
     if not merged_rows:
         st.info("No assessment data yet.")
         if st.button("⬅️ Back to Home"):
