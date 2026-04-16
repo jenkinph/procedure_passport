@@ -1,9 +1,7 @@
 streamlit
-pandas==2.2.2
 gspread
 gspread-dataframe
 google-auth
 google-auth-oauthlib
 openpyxl
-numpy
 matplotlib
