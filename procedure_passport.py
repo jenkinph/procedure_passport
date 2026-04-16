@@ -1110,56 +1110,97 @@ elif page == "cumulative":
             go_to("home")
         st.stop()
 
-    for col in ["case_complexity", "overall_performance"]:
-        if col not in scores_df.columns:
-            scores_df[col] = pd.NA
+    # ── Pure-Python join pipeline (pandas-version-agnostic) ───────────────────
+    # Every case_id is coerced to a clean string at read time using native Python
+    # str() so no pandas dtype inference can silently break the join.
 
-    # Normalise case_id on both DataFrames before any join (pandas 3.x safety).
-    for _df in (cases_df, scores_df):
-        _df.dropna(subset=["case_id"], inplace=True)
-        _df["case_id"] = _norm_id(_df["case_id"])
+    def _clean_id(val) -> str:
+        """str(x).strip() then remove a trailing .0 left by float→str conversion."""
+        s = str(val).strip()
+        return s[:-2] if s.endswith(".0") else s
 
-    # Deduplicate all lookup tables before any join so duplicate sheet rows
-    # can't produce phantom extra rows in the dashboard.
-    cases_df  = cases_df.drop_duplicates(subset=["case_id"])
-    scores_df = scores_df.drop_duplicates(subset=["case_id", "step_id"])
-    steps_df  = steps_df.drop_duplicates(subset=["step_id"])
+    # Build a dict of case_id → case-metadata for this resident only.
+    # Duplicates are handled by last-write-wins (same result as drop_duplicates).
+    atnds_lookup = {
+        str(r.get("attending_id", "")): str(r.get("attending_name", ""))
+        for _, r in atnds_df.iterrows()
+    }
+    procs_map = {
+        str(r.get("procedure_id", "")): str(r.get("procedure_name", ""))
+        for _, r in procs_df.iterrows()
+    }
 
-    res_cases = cases_df[cases_df["resident_email"] == resident]
-    if res_cases.empty:
+    resident_cases: dict = {}  # clean_case_id → metadata dict
+    for _, row in cases_df.iterrows():
+        if str(row.get("resident_email", "")).strip() != str(resident).strip():
+            continue
+        cid = _clean_id(row.get("case_id", ""))
+        if not cid or cid == "nan":
+            continue
+        aid = str(row.get("attending_id", ""))
+        resident_cases[cid] = {
+            "case_id":             cid,
+            "date":                str(row.get("date", "")),
+            "case_procedure_id":   str(row.get("procedure_id", "")),
+            "attending_name":      attending_display_name(aid, atnds_lookup),
+            "case_complexity":     row.get("case_complexity"),
+            "overall_performance": row.get("overall_performance"),
+        }
+
+    if not resident_cases:
         st.info("No cases logged yet.")
         if st.button("⬅️ Back to Home"):
             go_to("home")
         st.stop()
 
-    # Resolve attending names (handle magic_ IDs)
-    atnds_lookup = dict(zip(atnds_df["attending_id"], atnds_df["attending_name"]))
-    res_cases    = res_cases.copy()
-    res_cases["attending_name"] = res_cases["attending_id"].apply(
-        lambda aid: attending_display_name(str(aid), atnds_lookup)
-    )
+    # Build a dict of step_id → step-metadata.
+    steps_lookup: dict = {}
+    for _, row in steps_df.iterrows():
+        sid = str(row.get("step_id", "")).strip()
+        if not sid or sid == "nan":
+            continue
+        steps_lookup[sid] = {
+            "step_procedure_id": str(row.get("procedure_id", "")),
+            "step_name":         str(row.get("step_name", "")),
+            "step_order":        row.get("step_order", 0),
+        }
 
-    res_cases_small = res_cases[["case_id", "date", "procedure_id",
-                                  "attending_name", "case_complexity", "overall_performance"]].copy()
-    res_cases_small = res_cases_small.rename(columns={"procedure_id": "case_procedure_id"})
+    # Walk every score row; look up case + step with dict gets — no merge needed.
+    seen_case_step: set = set()   # deduplicate (case_id, step_id) pairs
+    merged_rows: list = []
+    for _, row in scores_df.iterrows():
+        cid = _clean_id(row.get("case_id", ""))
+        if cid not in resident_cases:
+            continue
+        sid = str(row.get("step_id", "")).strip()
+        if not sid or sid == "nan":
+            continue
+        key = (cid, sid)
+        if key in seen_case_step:
+            continue
+        seen_case_step.add(key)
+        step_meta = steps_lookup.get(sid, {})
+        merged_rows.append({
+            "case_id":             cid,
+            "step_id":             sid,
+            "rating":              str(row.get("rating", "")),
+            "rating_num":          row.get("rating_num"),
+            **resident_cases[cid],
+            "step_procedure_id":   step_meta.get("step_procedure_id", ""),
+            "step_name":           step_meta.get("step_name", ""),
+            "step_order":          step_meta.get("step_order", 0),
+        })
 
-    steps_small = steps_df[["step_id", "procedure_id", "step_name", "step_order"]].rename(
-        columns={"procedure_id": "step_procedure_id"}
-    )
-
-    procs_map = procs_df.set_index("procedure_id")["procedure_name"].to_dict()
-
-    merged = (
-        scores_df[["case_id", "step_id", "rating", "rating_num"]]
-        .merge(res_cases_small, on="case_id", how="inner")
-        .merge(steps_small, on="step_id", how="left")
-    )
-
-    if merged.empty:
+    if not merged_rows:
         st.info("No assessment data yet.")
         if st.button("⬅️ Back to Home"):
             go_to("home")
         st.stop()
+
+    merged = pd.DataFrame(merged_rows)
+    # Alias so the rest of the page (which references case_procedure_id) works unchanged.
+    if "case_procedure_id" not in merged.columns:
+        merged["case_procedure_id"] = ""
 
     # ── Procedure selector ────────────────────────────────
     proc_ids      = merged["case_procedure_id"].dropna().unique()
