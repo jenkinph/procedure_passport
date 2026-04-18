@@ -599,7 +599,8 @@ elif page == "admin":
             new_att_email = st.text_input("Email (optional)")
             if st.button("Add Attending", key="btn_add_att"):
                 if new_att_name:
-                    spec_id = spec_df.loc[spec_df["specialty_name"] == new_att_spec, "specialty_id"].values[0]
+                    _spec_match = spec_df[spec_df["specialty_name"].astype(str).str.strip() == str(new_att_spec).strip()]
+                    spec_id = _spec_match["specialty_id"].values[0] if len(_spec_match) > 0 else None
                     ensure_attending(new_att_name, spec_id, new_att_email)
                     st.success(f"✅ Added {new_att_name}")
                     time.sleep(0.5)
@@ -634,7 +635,8 @@ elif page == "admin":
             new_steps     = [s.strip() for s in steps_raw.split("\n") if s.strip()]
             if st.button("Add Procedure", key="btn_add_proc"):
                 if new_proc_id and new_proc_name and new_steps:
-                    spec_id = spec_df.loc[spec_df["specialty_name"] == new_proc_spec, "specialty_id"].values[0]
+                    _spec_match = spec_df[spec_df["specialty_name"].astype(str).str.strip() == str(new_proc_spec).strip()]
+                    spec_id = _spec_match["specialty_id"].values[0] if len(_spec_match) > 0 else None
                     ensure_procedure(new_proc_id, new_proc_name, spec_id, new_steps)
                     st.success(f"✅ Added {new_proc_name}")
                     time.sleep(0.5)
@@ -648,7 +650,8 @@ elif page == "admin":
                 st.info("No procedures yet.")
             else:
                 edit_proc    = st.selectbox("Select procedure", procs_df["procedure_name"], key="edit_proc_sel")
-                sel_proc_id  = procs_df.loc[procs_df["procedure_name"] == edit_proc, "procedure_id"].values[0]
+                _proc_match = procs_df[procs_df["procedure_name"].astype(str).str.strip() == str(edit_proc).strip()]
+                sel_proc_id  = _proc_match["procedure_id"].values[0] if len(_proc_match) > 0 else None
                 new_pname    = st.text_input("Updated name", value=edit_proc, key="edit_proc_name")
                 new_steps_ra = st.text_area("Updated steps (blank = keep current)", key="edit_proc_steps")
                 new_edit_stp = [s.strip() for s in new_steps_ra.split("\n") if s.strip()]
@@ -780,8 +783,8 @@ elif page == "start":
 
     # ── Magic link for attending ──────────────────────────
     if not is_admin:
-        safe_att  = atnds.loc[atnds["attending_id"] == st.session_state["attending_id"],
-                               "attending_name"].values[0].replace(" ", "_")
+        _att_match = atnds[atnds["attending_id"].astype(str).str.strip() == str(st.session_state.get("attending_id", "")).strip()]
+        safe_att  = _att_match["attending_name"].values[0].replace(" ", "_") if len(_att_match) > 0 else "Unknown"
         base_url  = "https://procedurepassport.streamlit.app"
         magic_url = (
             f"{base_url}/?mode=attending"
