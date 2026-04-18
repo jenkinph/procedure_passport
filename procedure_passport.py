@@ -96,6 +96,21 @@ def fmt_date(d):
         return str(d)
 
 
+def _norm_id(series: pd.Series) -> pd.Series:
+    """Normalise a case_id Series to clean strings regardless of pandas version.
+
+    pandas 3.x can infer all-digit hex IDs as float64, making astype(str)
+    produce "123456789012.0" while the other sheet retains "123456789012".
+    The three-step chain below is safe for every dtype:
+      float64  123456789012.0  → "123456789012.0" → strip → remove .0 → "123456789012"
+      int64    123456789012    → "123456789012"   → strip → no-op      → "123456789012"
+      object   "abc123def456"  → "abc123def456"   → strip → no-op      → "abc123def456"
+    """
+    return (series.astype(str)
+                  .str.strip()
+                  .str.replace(r"\.0$", "", regex=True))
+
+
 COMPLEXITY_HEX = {
     "Straight Forward": "#C8E6C9",
     "Moderate":         "#FFF59D",
@@ -285,12 +300,9 @@ def save_case(
     score_cols = ["case_id", "step_id", "rating", "rating_num",
                   "case_complexity", "overall_performance"]
     scores_df  = read_sheet_df(SHEET_SCORES, expected_cols=score_cols)
-    # Normalise existing case_ids to clean strings before concat so the written
-    # sheet is consistent — same logic used in the cumulative dashboard join.
+    # Normalise existing case_ids before concat so the written sheet is consistent.
     if not scores_df.empty:
-        scores_df["case_id"] = (scores_df["case_id"].astype(str)
-                                                     .str.strip()
-                                                     .str.replace(r"\.0$", "", regex=True))
+        scores_df["case_id"] = _norm_id(scores_df["case_id"])
     new_rows   = [{
         "case_id":             case_id,
         "step_id":             step_id,
@@ -587,7 +599,8 @@ elif page == "admin":
             new_att_email = st.text_input("Email (optional)")
             if st.button("Add Attending", key="btn_add_att"):
                 if new_att_name:
-                    spec_id = spec_df.loc[spec_df["specialty_name"] == new_att_spec, "specialty_id"].values[0]
+                    _spec_match = spec_df[spec_df["specialty_name"].astype(str).str.strip() == str(new_att_spec).strip()]
+                    spec_id = _spec_match["specialty_id"].values[0] if len(_spec_match) > 0 else None
                     ensure_attending(new_att_name, spec_id, new_att_email)
                     st.success(f"✅ Added {new_att_name}")
                     time.sleep(0.5)
@@ -622,7 +635,8 @@ elif page == "admin":
             new_steps     = [s.strip() for s in steps_raw.split("\n") if s.strip()]
             if st.button("Add Procedure", key="btn_add_proc"):
                 if new_proc_id and new_proc_name and new_steps:
-                    spec_id = spec_df.loc[spec_df["specialty_name"] == new_proc_spec, "specialty_id"].values[0]
+                    _spec_match = spec_df[spec_df["specialty_name"].astype(str).str.strip() == str(new_proc_spec).strip()]
+                    spec_id = _spec_match["specialty_id"].values[0] if len(_spec_match) > 0 else None
                     ensure_procedure(new_proc_id, new_proc_name, spec_id, new_steps)
                     st.success(f"✅ Added {new_proc_name}")
                     time.sleep(0.5)
@@ -636,7 +650,8 @@ elif page == "admin":
                 st.info("No procedures yet.")
             else:
                 edit_proc    = st.selectbox("Select procedure", procs_df["procedure_name"], key="edit_proc_sel")
-                sel_proc_id  = procs_df.loc[procs_df["procedure_name"] == edit_proc, "procedure_id"].values[0]
+                _proc_match = procs_df[procs_df["procedure_name"].astype(str).str.strip() == str(edit_proc).strip()]
+                sel_proc_id  = _proc_match["procedure_id"].values[0] if len(_proc_match) > 0 else None
                 new_pname    = st.text_input("Updated name", value=edit_proc, key="edit_proc_name")
                 new_steps_ra = st.text_area("Updated steps (blank = keep current)", key="edit_proc_steps")
                 new_edit_stp = [s.strip() for s in new_steps_ra.split("\n") if s.strip()]
@@ -768,8 +783,8 @@ elif page == "start":
 
     # ── Magic link for attending ──────────────────────────
     if not is_admin:
-        safe_att  = atnds.loc[atnds["attending_id"] == st.session_state["attending_id"],
-                               "attending_name"].values[0].replace(" ", "_")
+        _att_match = atnds[atnds["attending_id"].astype(str).str.strip() == str(st.session_state.get("attending_id", "")).strip()]
+        safe_att  = _att_match["attending_name"].values[0].replace(" ", "_") if len(_att_match) > 0 else "Unknown"
         base_url  = "https://procedurepassport.streamlit.app"
         magic_url = (
             f"{base_url}/?mode=attending"
@@ -983,7 +998,8 @@ elif page == "comments":
             go_to("home")
         st.stop()
 
-    # Deduplicate cases to prevent a fan-out if the sheet has duplicate rows.
+    # Normalise case_id then deduplicate to prevent fan-out from duplicate rows.
+    cases_df["case_id"] = _norm_id(cases_df["case_id"])
     cases_df = cases_df.drop_duplicates(subset=["case_id"])
 
     res_cases = cases_df[cases_df["resident_email"] == resident].copy()
@@ -1097,68 +1113,107 @@ elif page == "cumulative":
             go_to("home")
         st.stop()
 
-    for col in ["case_complexity", "overall_performance"]:
-        if col not in scores_df.columns:
-            scores_df[col] = pd.NA
+    # ── Pure-Python join pipeline (pandas-version-agnostic) ───────────────────
+    # Every case_id is coerced to a clean string at read time using native Python
+    # str() so no pandas dtype inference can silently break the join.
 
-    # Normalise case_id to a clean string on both DataFrames before any join.
-    # pandas 3.x (and some gspread versions) can infer all-digit hex case_ids
-    # as float64, making astype(str) produce "123456789012.0" while the other
-    # sheet keeps "123456789012".  The three-step chain below is safe for every
-    # dtype combination:
-    #   float64  123456789012.0  → "123456789012.0" → strip → remove .0 → "123456789012"
-    #   int64    123456789012    → "123456789012"   → strip → no-op      → "123456789012"
-    #   object   "abc123def456"  → "abc123def456"   → strip → no-op      → "abc123def456"
-    def _norm_case_id(series: pd.Series) -> pd.Series:
-        return (series.astype(str)
-                      .str.strip()
-                      .str.replace(r"\.0$", "", regex=True))
+    def _clean_id(val) -> str:
+        """str(x).strip() then remove a trailing .0 left by float→str conversion."""
+        s = str(val).strip()
+        return s[:-2] if s.endswith(".0") else s
 
-    for _df in (cases_df, scores_df):
-        _df.dropna(subset=["case_id"], inplace=True)
-        _df["case_id"] = _norm_case_id(_df["case_id"])
+    # Build a dict of case_id → case-metadata for this resident only.
+    # Duplicates are handled by last-write-wins (same result as drop_duplicates).
+    atnds_lookup = {
+        str(r.get("attending_id", "")): str(r.get("attending_name", ""))
+        for _, r in atnds_df.iterrows()
+    }
+    procs_map = {
+        str(r.get("procedure_id", "")): str(r.get("procedure_name", ""))
+        for _, r in procs_df.iterrows()
+    }
 
-    # Deduplicate all lookup tables before any join so duplicate sheet rows
-    # can't produce phantom extra rows in the dashboard.
-    cases_df  = cases_df.drop_duplicates(subset=["case_id"])
-    scores_df = scores_df.drop_duplicates(subset=["case_id", "step_id"])
-    steps_df  = steps_df.drop_duplicates(subset=["step_id"])
+    resident_cases: dict = {}  # clean_case_id → metadata dict
+    for _, row in cases_df.iterrows():
+        if str(row.get("resident_email", "")).strip() != str(resident).strip():
+            continue
+        cid = _clean_id(row.get("case_id", ""))
+        if not cid or cid == "nan":
+            continue
+        aid = str(row.get("attending_id", ""))
+        resident_cases[cid] = {
+            "case_id":             cid,
+            "date":                str(row.get("date", "")),
+            "case_procedure_id":   str(row.get("procedure_id", "")),
+            "attending_name":      attending_display_name(aid, atnds_lookup),
+            "case_complexity":     row.get("case_complexity"),
+            "overall_performance": row.get("overall_performance"),
+        }
 
-    res_cases = cases_df[cases_df["resident_email"] == resident]
-    if res_cases.empty:
+    if not resident_cases:
         st.info("No cases logged yet.")
         if st.button("⬅️ Back to Home"):
             go_to("home")
         st.stop()
 
-    # Resolve attending names (handle magic_ IDs)
-    atnds_lookup = dict(zip(atnds_df["attending_id"], atnds_df["attending_name"]))
-    res_cases    = res_cases.copy()
-    res_cases["attending_name"] = res_cases["attending_id"].apply(
-        lambda aid: attending_display_name(str(aid), atnds_lookup)
-    )
+    # Build a dict of step_id → step-metadata.
+    steps_lookup: dict = {}
+    for _, row in steps_df.iterrows():
+        sid = str(row.get("step_id", "")).strip()
+        if not sid or sid == "nan":
+            continue
+        steps_lookup[sid] = {
+            "step_procedure_id": str(row.get("procedure_id", "")),
+            "step_name":         str(row.get("step_name", "")),
+            "step_order":        row.get("step_order", 0),
+        }
 
-    res_cases_small = res_cases[["case_id", "date", "procedure_id",
-                                  "attending_name", "case_complexity", "overall_performance"]].copy()
-    res_cases_small = res_cases_small.rename(columns={"procedure_id": "case_procedure_id"})
+    # Walk every score row; look up case + step with dict gets — no merge needed.
+    seen_case_step: set = set()   # deduplicate (case_id, step_id) pairs
+    merged_rows: list = []
+    for _, row in scores_df.iterrows():
+        cid = _clean_id(row.get("case_id", ""))
+        if cid not in resident_cases:
+            continue
+        sid = str(row.get("step_id", "")).strip()
+        if not sid or sid == "nan":
+            continue
+        key = (cid, sid)
+        if key in seen_case_step:
+            continue
+        seen_case_step.add(key)
+        step_meta = steps_lookup.get(sid, {})
+        merged_rows.append({
+            "case_id":             cid,
+            "step_id":             sid,
+            "rating":              str(row.get("rating", "")),
+            "rating_num":          row.get("rating_num"),
+            **resident_cases[cid],
+            "step_procedure_id":   step_meta.get("step_procedure_id", ""),
+            "step_name":           step_meta.get("step_name", ""),
+            "step_order":          step_meta.get("step_order", 0),
+        })
 
-    steps_small = steps_df[["step_id", "procedure_id", "step_name", "step_order"]].rename(
-        columns={"procedure_id": "step_procedure_id"}
-    )
+    # ── TEMPORARY DEBUG — remove before release ───────────────────────────────
+    st.write("Total cases in sheet:", len(cases_df))
+    st.write("Resident email:", resident)
+    st.write("Sample case emails:", cases_df["resident_email"].head(5).tolist())
+    st.write("Sample case_ids from cases:", cases_df["case_id"].head(5).tolist())
+    st.write("Sample case_ids from scores:", scores_df["case_id"].head(5).tolist())
+    st.write("Resident cases found:", len(resident_cases))
+    st.write("Merged rows found:", len(merged_rows))
+    # ── END TEMPORARY DEBUG ───────────────────────────────────────────────────
 
-    procs_map = procs_df.set_index("procedure_id")["procedure_name"].to_dict()
-
-    merged = (
-        scores_df[["case_id", "step_id", "rating", "rating_num"]]
-        .merge(res_cases_small, on="case_id", how="inner")
-        .merge(steps_small, on="step_id", how="left")
-    )
-
-    if merged.empty:
+    if not merged_rows:
         st.info("No assessment data yet.")
         if st.button("⬅️ Back to Home"):
             go_to("home")
         st.stop()
+
+    merged = pd.DataFrame(merged_rows)
+    # Alias so the rest of the page (which references case_procedure_id) works unchanged.
+    if "case_procedure_id" not in merged.columns:
+        merged["case_procedure_id"] = ""
 
     # ── Procedure selector ────────────────────────────────
     proc_ids      = merged["case_procedure_id"].dropna().unique()
